@@ -16,6 +16,7 @@ Realiza los cambios en el área responsable. Coloca la configuración compartida
 
 - Usa pnpm desde la raíz del repositorio. El `package.json` raíz fija la versión del gestor. Actualiza `pnpm-lock.yaml` cada vez que cambien las dependencias y no añadas lockfiles de npm o Yarn.
 - Mantén TypeScript en modo estricto tanto en frontend como en backend. No uses `any`; representa datos externos como `unknown` y valídalos antes de utilizarlos.
+- En desarrollo, registra cada operación REST y GraphQL con un interceptor global. Limita el registro al método/ruta u operación, resultado y duración; nunca registres cuerpos, variables GraphQL, cookies, cabeceras de autorización, tokens ni contenido de archivos. Mantén este interceptor desactivado en producción.
 - Declara interfaces para contratos y estructuras de datos reutilizadas, incluidas props, solicitudes, respuestas y servicios. Cuando un framework requiera metadatos en tiempo de ejecución, como DTOs de NestJS o tipos de GraphQL, usa clases concretas y conserva las interfaces para los contratos TypeScript que correspondan.
 - Aplica Clean Code y principios SOLID: nombres claros, módulos cohesionados, dependencias explícitas y responsabilidades acotadas. Evita abstracciones que no resuelvan una necesidad real.
 - Usa TypeScript y respeta las convenciones existentes de nombres y módulos. Escribe identificadores y comentarios de código en inglés; redacta en español el texto de la interfaz y la documentación, salvo que el usuario pida otro idioma.

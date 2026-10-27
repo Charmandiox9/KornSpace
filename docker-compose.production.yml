@@ -21,6 +21,7 @@ services:
       target: production
     command: ["pnpm", "start:prod"]
     environment:
+      NODE_ENV: production
       DATABASE_URL: ${POSTGRES_DATABASE_URL:?Define POSTGRES_DATABASE_URL para producción}
       DATABASE_URL_UNPOOLED: ${POSTGRES_DATABASE_URL:?Define POSTGRES_DATABASE_URL para producción}
     depends_on:
