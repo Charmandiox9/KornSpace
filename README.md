@@ -85,7 +85,7 @@ $env:DATABASE_URL_UNPOOLED = "postgresql://..."
 pnpm dev:backend
 ```
 
-NestJS no carga automáticamente las variables del archivo `.env` al ejecutarse desde el host. Docker Compose sí las lee para interpolar las variables de los contenedores.
+Los scripts de Prisma cargan automáticamente el `.env` de la raíz, incluso al ejecutarlos desde `backend/`. Para iniciar NestJS directamente desde el host, exporta las variables al proceso como en el ejemplo anterior. Docker Compose lee la raíz `.env` para interpolar e inyectar las variables de sus contenedores.
 
 ## Comandos del frontend
 
