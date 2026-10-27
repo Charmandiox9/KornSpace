@@ -11,15 +11,16 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:status": "prisma migrate status",
-    "test:compile": "tsc --module commonjs --target ES2022 --strict --esModuleInterop --emitDecoratorMetadata --experimentalDecorators --skipLibCheck --rootDir . --outDir .test-dist test/health.e2e-spec.ts test/prisma.service.spec.ts",
-    "test:unit": "pnpm test:compile && node --test .test-dist/test/prisma.service.spec.js",
-    "test:e2e": "pnpm test:compile && node --test .test-dist/test/health.e2e-spec.js",
-    "test": "pnpm test:compile && node --test .test-dist/test/prisma.service.spec.js .test-dist/test/health.e2e-spec.js"
+    "test:compile": "tsc --module commonjs --target ES2022 --strict --esModuleInterop --emitDecoratorMetadata --experimentalDecorators --skipLibCheck --rootDir . --outDir .test-dist test/health.e2e-spec.ts test/prisma.service.spec.ts test/files.service.spec.ts test/files.e2e-spec.ts",
+    "test:unit": "pnpm test:compile && node --test .test-dist/test/prisma.service.spec.js .test-dist/test/files.service.spec.js",
+    "test:e2e": "pnpm test:compile && node --test .test-dist/test/health.e2e-spec.js .test-dist/test/files.e2e-spec.js",
+    "test": "pnpm test:compile && node --test .test-dist/test/prisma.service.spec.js .test-dist/test/files.service.spec.js .test-dist/test/health.e2e-spec.js .test-dist/test/files.e2e-spec.js"
   },
   "dependencies": {
     "@apollo/server": "^5",
     "@as-integrations/express5": "^1.1.2",
     "@aws-sdk/client-s3": "^3.850.0",
+    "@aws-sdk/client-sqs": "^3.1158.0",
     "@nestjs/apollo": "^13.4.5",
     "@nestjs/common": "^11.1.3",
     "@nestjs/core": "^11.1.3",

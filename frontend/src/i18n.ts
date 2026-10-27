@@ -17,6 +17,23 @@ export interface TranslationCatalog {
   description: string;
   status: string;
   footer: string;
+  uploadFile: string;
+  filesHeading: string;
+  fileName: string;
+  fileSize: string;
+  fileStatus: string;
+  fileReady: string;
+  fileProcessing: string;
+  fileFailed: string;
+  download: string;
+  emptyFiles: string;
+  uploading: string;
+  uploadSuccess: string;
+  uploadQueued: string;
+  uploadError: string;
+  loadError: string;
+  fileLimit: string;
+  unknownError: string;
 }
 
 export const translations = {
@@ -36,6 +53,23 @@ export const translations = {
     description: 'Un espacio sencillo para guardar, organizar y compartir tus archivos.',
     status: 'El espacio de trabajo se está preparando',
     footer: 'Almacenamiento privado para tus cosas.',
+    uploadFile: 'Subir archivo',
+    filesHeading: 'Tus archivos',
+    fileName: 'Nombre',
+    fileSize: 'Tamaño',
+    fileStatus: 'Estado',
+    fileReady: 'Disponible',
+    fileProcessing: 'Procesando',
+    fileFailed: 'Error',
+    download: 'Descargar',
+    emptyFiles: 'Aún no hay archivos. Sube uno para comenzar.',
+    uploading: 'Subiendo archivo…',
+    uploadSuccess: 'El archivo está disponible para descargar.',
+    uploadQueued: 'Archivo subido. Se está procesando en segundo plano.',
+    uploadError: 'No se pudo subir el archivo.',
+    loadError: 'No se pudieron cargar los archivos.',
+    fileLimit: 'El tamaño máximo es 100 MiB.',
+    unknownError: 'Error inesperado.',
   },
   en: {
     pageTitle: 'KornSpace — Your files, in their place',
@@ -53,6 +87,23 @@ export const translations = {
     description: 'A simple space to store, organize, and share your files.',
     status: 'Your workspace is getting ready',
     footer: 'Private storage for your things.',
+    uploadFile: 'Upload file',
+    filesHeading: 'Your files',
+    fileName: 'Name',
+    fileSize: 'Size',
+    fileStatus: 'Status',
+    fileReady: 'Available',
+    fileProcessing: 'Processing',
+    fileFailed: 'Failed',
+    download: 'Download',
+    emptyFiles: 'No files yet. Upload one to get started.',
+    uploading: 'Uploading file…',
+    uploadSuccess: 'The file is available to download.',
+    uploadQueued: 'File uploaded. It is processing in the background.',
+    uploadError: 'The file could not be uploaded.',
+    loadError: 'Files could not be loaded.',
+    fileLimit: 'Maximum file size is 100 MiB.',
+    unknownError: 'Unexpected error.',
   },
 } satisfies Record<Language, TranslationCatalog>;
 

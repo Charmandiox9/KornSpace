@@ -7,3 +7,20 @@ datasource db {
   url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
 }
+
+enum FileStatus {
+  PROCESSING
+  AVAILABLE
+  FAILED
+}
+
+model StoredFile {
+  id          String     @id @default(uuid()) @db.Uuid
+  name        String
+  contentType String
+  sizeBytes   BigInt
+  s3Key       String     @unique
+  checksum    String?
+  status      FileStatus @default(PROCESSING)
+  createdAt   DateTime   @default(now())
+}

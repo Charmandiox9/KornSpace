@@ -5,5 +5,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
+    proxy: {
+      '/api': process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:3000',
+      '/graphql': process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:3000',
+    },
   },
 });

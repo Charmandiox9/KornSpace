@@ -34,6 +34,9 @@ Completa las variables que correspondan:
 | `POSTGRES_PASSWORD` | Contraseña para el servicio PostgreSQL del overlay Compose de producción. |
 | `POSTGRES_DATABASE_URL` | URL del servicio PostgreSQL `postgres`, usada por el backend en ese overlay. |
 | `POSTGRES_USER` / `POSTGRES_DB` | Usuario y base del contenedor PostgreSQL; por defecto ambos son `kornspace`. |
+| `SQS_ENDPOINT` / `SQS_QUEUE_URL` | Compose configura el endpoint de LocalStack y la cola de procesamiento de archivos. |
+| `FILE_ASYNC_THRESHOLD_BYTES` | Umbral de procesamiento asíncrono (10 MiB por defecto en Compose). |
+| `FILE_MAX_SIZE_BYTES` | Tamaño máximo permitido por la API (100 MiB por defecto en Compose). |
 
 En PostgreSQL autogestionado, `DATABASE_URL_UNPOOLED` debe usar una conexión directa. No incluyas `.env` en Git; ya está excluido.
 
@@ -109,7 +112,7 @@ NestJS no carga automáticamente las variables del archivo `.env` al ejecutarse 
 | `pnpm --filter kornspace-backend test:e2e` | Ejecuta la prueba HTTP E2E de salud REST y GraphQL. |
 | `pnpm --filter kornspace-backend test` | Ejecuta las pruebas unitarias y E2E del backend. |
 
-Cada cambio en `backend/prisma/schema.prisma` debe incluir la migración creada con `prisma:migrate:dev`. Versiona los archivos de `backend/prisma/migrations/` junto al cambio. No uses `prisma db push` para sustituir migraciones compartidas. El esquema actual aún no define modelos de dominio, por lo que no hay tablas de archivos o usuarios que crear.
+Cada cambio en `backend/prisma/schema.prisma` debe incluir su migración versionada en `backend/prisma/migrations/`, creada con `prisma:migrate:dev`. No uses `prisma db push` para sustituir migraciones compartidas. El esquema incluye ahora metadatos para archivos; las migraciones pendientes se aplican al iniciar el backend.
 
 ## Comandos de Docker Compose
 
@@ -166,3 +169,30 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml logs -f ba
 Además de las variables de Neon requeridas por el Compose base, configura `POSTGRES_PASSWORD` y `POSTGRES_DATABASE_URL`. La URL debe apuntar a `postgres:5432` y coincidir con `POSTGRES_USER`, `POSTGRES_DB` y la contraseña. Codifica en formato URL los caracteres reservados de la contraseña.
 
 Este overlay configura PostgreSQL y el backend en modo producción. El Compose base todavía usa Vite en modo desarrollo para el frontend y LocalStack para S3; adapta esos servicios y credenciales antes de desplegar el stack completo en producción.
+
+## Subir y descargar archivos
+
+La pantalla principal lista los archivos guardados y permite subir archivos de hasta 100 MiB. Los binarios se guardan en el bucket `kornspace-files`; PostgreSQL mantiene nombre, tamaño, tipo, estado y checksum SHA-256. Sólo los archivos `AVAILABLE` se pueden descargar.
+
+- Hasta 10 MiB, el backend calcula el checksum durante la subida y deja el archivo disponible al terminar.
+- Sobre 10 MiB, el backend guarda el archivo en S3, publica un trabajo en `kornspace-file-processing` y devuelve HTTP 202. Un worker NestJS lee el objeto desde S3, calcula el checksum y actualiza el estado; la interfaz consulta el estado periódicamente.
+- Terraform crea el bucket y la cola al iniciar Compose. LocalStack se configura con `SERVICES=s3,sqs`.
+
+Endpoints documentados en Swagger (`http://localhost/api/docs`):
+
+| Método y ruta | Uso |
+| --- | --- |
+| `GET /api/files` | Lista metadatos de los archivos. |
+| `POST /api/files?name=<nombre>` | Recibe el binario en el cuerpo HTTP. Enviar `Content-Type` y `Content-Length`. Devuelve 201 para archivos pequeños o 202 para archivos encolados. |
+| `GET /api/files/:id` | Descarga un archivo disponible. |
+| `GET /api/files/:id/status` | Consulta estado y metadatos durante el procesamiento. |
+
+Prueba manual desde PowerShell con un archivo pequeño:
+
+```powershell
+curl.exe -X POST "http://localhost/api/files?name=ejemplo.txt" -H "Content-Type: text/plain" --data-binary "@.\ejemplo.txt"
+curl.exe "http://localhost/api/files"
+curl.exe -L "http://localhost/api/files/<ID_DEVUELTO>" -o .\descargado.txt
+```
+
+Este flujo es un prototipo local sin autenticación. Cualquier persona con acceso a la aplicación puede listar, subir y descargar archivos; no lo expongas a Internet hasta añadir autenticación y autorización por usuario.

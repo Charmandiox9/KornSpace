@@ -5,6 +5,7 @@ import type { Request, Response } from 'express';
 import { HealthController } from './health.controller';
 import { HealthResolver } from './health.resolver';
 import { PrismaModule } from './prisma/prisma.module';
+import { FilesModule } from './files/files.module';
 
 interface GraphQLContextInput {
   req: Request;
@@ -14,6 +15,7 @@ interface GraphQLContextInput {
 @Module({
   imports: [
     PrismaModule,
+    FilesModule,
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
       autoSchemaFile: true,

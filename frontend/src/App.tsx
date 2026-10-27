@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   getInitialLanguage,
   getInitialTheme,
@@ -11,6 +11,34 @@ import {
 
 const languageStorageKey = 'kornspace-language';
 const themeStorageKey = 'kornspace-theme';
+
+interface StoredFile {
+  id: string;
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  status: 'PROCESSING' | 'AVAILABLE' | 'FAILED';
+  checksum: string | null;
+  createdAt: string;
+}
+
+function isStoredFile(value: unknown): value is StoredFile {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === 'string'
+    && typeof record.name === 'string'
+    && typeof record.contentType === 'string'
+    && typeof record.sizeBytes === 'number'
+    && (record.status === 'PROCESSING' || record.status === 'AVAILABLE' || record.status === 'FAILED')
+    && (typeof record.checksum === 'string' || record.checksum === null)
+    && typeof record.createdAt === 'string';
+}
+
+function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function readPreference(key: string): string | null {
   try {
@@ -84,6 +112,10 @@ export default function App() {
       window.matchMedia('(prefers-color-scheme: dark)').matches,
     ),
   );
+  const [files, setFiles] = useState<StoredFile[]>([]);
+  const [notice, setNotice] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const copy = translations[language];
   const nextLanguage = getNextLanguage(language);
   const nextTheme = getNextTheme(theme);
@@ -93,6 +125,61 @@ export default function App() {
   const languageActionLabel = nextLanguage === 'en'
     ? copy.switchLanguageToEnglish
     : copy.switchLanguageToSpanish;
+
+  const refreshFiles = useCallback(async (): Promise<void> => {
+    try {
+      const response = await fetch('/api/files');
+      if (!response.ok) throw new Error(copy.loadError);
+      const payload: unknown = await response.json();
+      if (!Array.isArray(payload) || !payload.every(isStoredFile)) throw new Error(copy.loadError);
+      setFiles(payload);
+    } catch {
+      setNotice(copy.loadError);
+    }
+  }, [copy.loadError]);
+
+  useEffect(() => {
+    void refreshFiles();
+  }, [refreshFiles]);
+
+  useEffect(() => {
+    if (!files.some((file) => file.status === 'PROCESSING')) return undefined;
+    const timer = window.setInterval(() => void refreshFiles(), 2500);
+    return () => window.clearInterval(timer);
+  }, [files, refreshFiles]);
+
+  async function uploadSelectedFile(file: File | undefined): Promise<void> {
+    if (!file) return;
+    if (file.size > 100 * 1024 * 1024) {
+      setNotice(copy.fileLimit);
+      return;
+    }
+    setIsUploading(true);
+    setNotice(copy.uploading);
+    try {
+      const response = await fetch(`/api/files?name=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+      if (!response.ok) throw new Error(copy.uploadError);
+      const payload: unknown = await response.json();
+      if (typeof payload !== 'object' || payload === null || !('file' in payload)) {
+        throw new Error(copy.uploadError);
+      }
+      const result = payload as { file: unknown; asynchronous?: unknown };
+      if (!isStoredFile(result.file) || typeof result.asynchronous !== 'boolean') {
+        throw new Error(copy.uploadError);
+      }
+      setNotice(result.asynchronous ? copy.uploadQueued : copy.uploadSuccess);
+      await refreshFiles();
+    } catch {
+      setNotice(copy.uploadError);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
 
   useLayoutEffect(() => {
     document.documentElement.lang = language;
@@ -144,14 +231,54 @@ export default function App() {
       </aside>
 
       <main className="page">
-        <section className="welcome" aria-labelledby="welcome-title" aria-live="polite">
-          <p className="eyebrow">{copy.eyebrow}</p>
-          <h1 id="welcome-title">{copy.headline}</h1>
-          <p className="intro">{copy.description}</p>
-          <p className="status">
-            <span className="status-dot" aria-hidden="true" />
-            {copy.status}
-          </p>
+        <section className="workspace" aria-labelledby="welcome-title">
+          <header className="workspace-header">
+            <div>
+              <p className="eyebrow">{copy.eyebrow}</p>
+              <h1 id="welcome-title">{copy.headline}</h1>
+              <p className="intro">{copy.description}</p>
+            </div>
+            <input
+              ref={fileInputRef}
+              className="visually-hidden"
+              type="file"
+              aria-label={copy.uploadFile}
+              onChange={(event) => void uploadSelectedFile(event.currentTarget.files?.[0])}
+            />
+            <button
+              className="upload-button"
+              type="button"
+              disabled={isUploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <span aria-hidden="true">＋</span>{isUploading ? copy.uploading : copy.uploadFile}
+            </button>
+          </header>
+          <section className="files-panel" aria-labelledby="files-heading">
+            <h2 id="files-heading">{copy.filesHeading}</h2>
+            {notice && <p className="notice" role="status">{notice}</p>}
+            {files.length === 0 ? (
+              <p className="empty-files">{copy.emptyFiles}</p>
+            ) : (
+              <ul className="file-list">
+                {files.map((file) => (
+                  <li className="file-row" key={file.id}>
+                    <div className="file-details">
+                      <span className="file-name" title={file.name}>{file.name}</span>
+                      <span className="file-meta">
+                        {formatFileSize(file.sizeBytes)} · {file.status === 'AVAILABLE' ? copy.fileReady : file.status === 'FAILED' ? copy.fileFailed : copy.fileProcessing}
+                      </span>
+                    </div>
+                    {file.status === 'AVAILABLE' && (
+                      <a className="download-link" href={`/api/files/${encodeURIComponent(file.id)}`}>
+                        {copy.download}
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </section>
         <footer className="footer">{copy.footer}</footer>
       </main>
