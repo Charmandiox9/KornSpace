@@ -40,7 +40,7 @@ Completa las variables que correspondan:
 
 En PostgreSQL autogestionado, `DATABASE_URL_UNPOOLED` debe usar una conexión directa. No incluyas `.env` en Git; ya está excluido.
 
-## Primer arranque con Docker
+## Levantar Compose de desarrollo
 
 Desde la raíz:
 
@@ -53,6 +53,13 @@ docker compose ps
 - `config --quiet` valida la configuración y las variables requeridas sin iniciar servicios.
 - `up --build -d` construye las imágenes, inicia los servicios en segundo plano y espera las dependencias declaradas.
 - `ps` muestra el estado de los contenedores.
+
+Este modo usa Vite y NestJS en desarrollo, Redis, LocalStack con S3/SQS y PostgreSQL de Neon. Antes de levantarlo, configura `LOCALSTACK_AUTH_TOKEN`, `DATABASE_URL` y `DATABASE_URL_UNPOOLED` en el `.env` raíz. Para ver logs o detener el entorno:
+
+```sh
+docker compose logs -f
+docker compose down
+```
 
 Terraform se ejecuta al iniciar el stack, espera a que LocalStack esté saludable y crea el bucket S3 `kornspace-files`. El backend aplica las migraciones Prisma pendientes antes de iniciar NestJS. En desarrollo, el interceptor registra operaciones REST y GraphQL porque `NODE_ENV` está configurado como `development`.
 
@@ -155,20 +162,19 @@ Para comprobar el bucket desde el contenedor LocalStack:
 docker compose exec localstack awslocal s3 ls
 ```
 
-## PostgreSQL en Docker
+## Levantar Compose de producción (overlay actual)
 
-El overlay `docker-compose.production.yml` agrega `postgres:17-alpine` con el volumen persistente `postgres_data`, configura el backend para usar esa base y ejecuta las migraciones al iniciar:
+El overlay `docker-compose.production.yml` agrega `postgres:17-alpine` con el volumen persistente `postgres_data`, configura el backend para usar esa base y arrancarlo en modo producción. Configura en el `.env` raíz `POSTGRES_PASSWORD` y `POSTGRES_DATABASE_URL`; esta última debe apuntar al host `postgres:5432` y coincidir con `POSTGRES_USER`, `POSTGRES_DB` y la contraseña. Codifica en formato URL los caracteres reservados de la contraseña. El Compose base todavía exige `DATABASE_URL` y `DATABASE_URL_UNPOOLED` para interpolar su configuración, aunque el overlay los reemplaza en el backend.
 
 ```sh
 docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.production.yml up --build -d
 docker compose -f docker-compose.yml -f docker-compose.production.yml ps
 docker compose -f docker-compose.yml -f docker-compose.production.yml logs -f backend postgres
+docker compose -f docker-compose.yml -f docker-compose.production.yml down
 ```
 
-Además de las variables de Neon requeridas por el Compose base, configura `POSTGRES_PASSWORD` y `POSTGRES_DATABASE_URL`. La URL debe apuntar a `postgres:5432` y coincidir con `POSTGRES_USER`, `POSTGRES_DB` y la contraseña. Codifica en formato URL los caracteres reservados de la contraseña.
-
-Este overlay configura PostgreSQL y el backend en modo producción. El Compose base todavía usa Vite en modo desarrollo para el frontend y LocalStack para S3; adapta esos servicios y credenciales antes de desplegar el stack completo en producción.
+Este overlay configura PostgreSQL y el backend en modo producción, pero el frontend sigue ejecutándose con Vite en desarrollo y el almacenamiento sigue en LocalStack. Es útil para probar el backend empaquetado y PostgreSQL en Docker; aún no es un despliegue integral de producción. No levantes ambos modos al mismo tiempo porque publican los mismos puertos. Para cambiar del overlay a desarrollo, primero ejecuta el comando `down` del overlay; para cambiar a producción desde desarrollo, ejecuta `docker compose down` antes del `up` del overlay. `down` conserva los volúmenes de datos; `down -v` también los elimina.
 
 ## Subir y descargar archivos
 
