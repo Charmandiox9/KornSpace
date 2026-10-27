@@ -1,0 +1,87 @@
+export type Language = 'es' | 'en';
+export type Theme = 'light' | 'dark';
+
+export interface TranslationCatalog {
+  pageTitle: string;
+  appearanceControls: string;
+  languageEnglish: string;
+  languageSpanish: string;
+  switchLanguageToEnglish: string;
+  switchLanguageToSpanish: string;
+  switchThemeToDark: string;
+  switchThemeToLight: string;
+  darkTheme: string;
+  lightTheme: string;
+  eyebrow: string;
+  headline: string;
+  description: string;
+  status: string;
+  footer: string;
+}
+
+export const translations = {
+  es: {
+    pageTitle: 'KornSpace — Tus archivos, en su lugar',
+    appearanceControls: 'Preferencias de apariencia',
+    languageEnglish: 'Inglés',
+    languageSpanish: 'Español',
+    switchLanguageToEnglish: 'Cambiar idioma a inglés',
+    switchLanguageToSpanish: 'Cambiar idioma a español',
+    switchThemeToDark: 'Activar tema oscuro',
+    switchThemeToLight: 'Activar tema claro',
+    darkTheme: 'Oscuro',
+    lightTheme: 'Claro',
+    eyebrow: 'TU ESPACIO PERSONAL',
+    headline: 'Tus archivos, en su lugar.',
+    description: 'Un espacio sencillo para guardar, organizar y compartir tus archivos.',
+    status: 'El espacio de trabajo se está preparando',
+    footer: 'Almacenamiento privado para tus cosas.',
+  },
+  en: {
+    pageTitle: 'KornSpace — Your files, in their place',
+    appearanceControls: 'Appearance preferences',
+    languageEnglish: 'English',
+    languageSpanish: 'Spanish',
+    switchLanguageToEnglish: 'Change language to English',
+    switchLanguageToSpanish: 'Change language to Spanish',
+    switchThemeToDark: 'Switch to dark theme',
+    switchThemeToLight: 'Switch to light theme',
+    darkTheme: 'Dark',
+    lightTheme: 'Light',
+    eyebrow: 'YOUR PERSONAL SPACE',
+    headline: 'Your files, in their place.',
+    description: 'A simple space to store, organize, and share your files.',
+    status: 'Your workspace is getting ready',
+    footer: 'Private storage for your things.',
+  },
+} satisfies Record<Language, TranslationCatalog>;
+
+export function getInitialLanguage(
+  savedLanguage: string | null,
+  browserLanguage: string,
+): Language {
+  if (savedLanguage === 'es' || savedLanguage === 'en') {
+    return savedLanguage;
+  }
+
+  return browserLanguage.toLowerCase().startsWith('en') ? 'en' : 'es';
+}
+
+export function getInitialTheme(
+  savedTheme: string | null,
+  prefersDark: boolean,
+): Theme {
+  if (savedTheme === 'light' || savedTheme === 'dark') {
+    return savedTheme;
+  }
+
+  return prefersDark ? 'dark' : 'light';
+}
+
+export function getNextLanguage(language: Language): Language {
+  return language === 'es' ? 'en' : 'es';
+}
+
+export function getNextTheme(theme: Theme): Theme {
+  return theme === 'light' ? 'dark' : 'light';
+}
