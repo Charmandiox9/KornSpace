@@ -1,0 +1,114 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      target: development
+    command: pnpm dev
+    volumes:
+      - .:/workspace
+      - workspace_node_modules:/workspace/node_modules
+      - frontend_node_modules:/workspace/frontend/node_modules
+      - backend_node_modules_prisma:/workspace/backend/node_modules
+    working_dir: /workspace/frontend
+    expose:
+      - "5173"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: development
+    command: pnpm start:dev
+    environment:
+      PORT: 3000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL en .env}
+      DATABASE_URL_UNPOOLED: ${DATABASE_URL_UNPOOLED:?Define DATABASE_URL_UNPOOLED en .env}
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      S3_ENDPOINT: http://localstack:4566
+      S3_BUCKET: kornspace-files
+    volumes:
+      - .:/workspace
+      - workspace_node_modules:/workspace/node_modules
+      - frontend_node_modules:/workspace/frontend/node_modules
+      - backend_node_modules_prisma:/workspace/backend/node_modules
+    working_dir: /workspace/backend
+    expose:
+      - "3000"
+    depends_on:
+      redis:
+        condition: service_started
+      terraform:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    expose:
+      - "6379"
+    restart: unless-stopped
+
+  localstack:
+    image: localstack/localstack:latest
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+      PERSISTENCE: "1"
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:-}
+    volumes:
+      - localstack_data:/var/lib/localstack
+    ports:
+      - "4566:4566"
+    expose:
+      - "4566"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  terraform:
+    image: hashicorp/terraform:1.12.2
+    working_dir: /infra
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["terraform init -input=false && terraform apply -input=false -auto-approve"]
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      TF_VAR_localstack_endpoint: http://localstack:4566
+    volumes:
+      - ./infra/terraform/localstack:/infra
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: "no"
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+volumes:
+  workspace_node_modules:
+  frontend_node_modules:
+  backend_node_modules_prisma:
+  redis_data:
+  localstack_data:
