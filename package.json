@@ -6,6 +6,10 @@
   "scripts": {
     "dev:frontend": "pnpm --filter kornspace-frontend dev",
     "dev:backend": "pnpm --filter kornspace-backend start:dev",
+    "prisma:generate": "pnpm --filter kornspace-backend prisma:generate",
+    "prisma:migrate:dev": "pnpm --filter kornspace-backend prisma:migrate:dev",
+    "prisma:migrate:deploy": "pnpm --filter kornspace-backend prisma:migrate:deploy",
+    "prisma:migrate:status": "pnpm --filter kornspace-backend prisma:migrate:status",
     "build": "pnpm --recursive --if-present build",
     "test": "pnpm --recursive --if-present test"
   }

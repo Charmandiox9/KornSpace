@@ -81,6 +81,10 @@ Ejecútalos desde la raíz del proyecto:
 | `pnpm install` | Instala las dependencias de todos los paquetes del workspace. |
 | `pnpm dev:frontend` | Inicia Vite para desarrollar el frontend en `http://localhost:5173`. |
 | `pnpm dev:backend` | Inicia NestJS en modo observación. Define `DATABASE_URL` y `DATABASE_URL_UNPOOLED` en el entorno del proceso. |
+| `pnpm prisma:generate` | Genera el Prisma Client usando el esquema del backend y las variables del `.env` raíz. |
+| `pnpm prisma:migrate:dev --name agregar-descripcion` | Crea y aplica una migración de desarrollo. |
+| `pnpm prisma:migrate:deploy` | Aplica las migraciones pendientes de la base configurada. |
+| `pnpm prisma:migrate:status` | Consulta el estado de las migraciones. |
 | `pnpm build` | Genera Prisma Client y compila frontend y backend. Las variables de conexión deben estar disponibles para Prisma. |
 | `pnpm test` | Ejecuta todas las suites unitarias y E2E configuradas. La E2E del backend abre un puerto local y usa dobles para PostgreSQL. |
 
@@ -111,10 +115,10 @@ Los scripts de Prisma cargan automáticamente el `.env` de la raíz, incluso al 
 | `pnpm --filter kornspace-backend start:dev` | Inicia NestJS y reinicia al detectar cambios. |
 | `pnpm --filter kornspace-backend start:prod` | Ejecuta `backend/dist/main.js`; requiere haber compilado antes. |
 | `pnpm --filter kornspace-backend build` | Genera Prisma Client y compila NestJS. |
-| `pnpm --filter kornspace-backend prisma:generate` | Regenera Prisma Client después de cambiar el esquema. |
-| `pnpm --filter kornspace-backend prisma:migrate:dev --name agregar-descripcion` | Crea una migración desde los cambios de `backend/prisma/schema.prisma` y la aplica a la base de desarrollo. |
-| `pnpm --filter kornspace-backend prisma:migrate:deploy` | Aplica migraciones versionadas pendientes; es el comando usado al iniciar el contenedor. |
-| `pnpm --filter kornspace-backend prisma:migrate:status` | Muestra el estado de las migraciones en la base configurada. |
+| `pnpm prisma:generate` | Regenera Prisma Client después de cambiar el esquema. |
+| `pnpm prisma:migrate:dev --name agregar-descripcion` | Crea una migración desde los cambios de `backend/prisma/schema.prisma` y la aplica a la base de desarrollo. |
+| `pnpm prisma:migrate:deploy` | Aplica migraciones versionadas pendientes; es el comando usado al iniciar el contenedor. |
+| `pnpm prisma:migrate:status` | Muestra el estado de las migraciones en la base configurada. |
 | `pnpm --filter kornspace-backend test:unit` | Ejecuta pruebas unitarias del ciclo de vida de `PrismaService`. |
 | `pnpm --filter kornspace-backend test:e2e` | Ejecuta la prueba HTTP E2E de salud REST y GraphQL. |
 | `pnpm --filter kornspace-backend test` | Ejecuta las pruebas unitarias y E2E del backend. |
