@@ -1,0 +1,12 @@
+{
+  "name": "kornspace",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.31.0",
+  "scripts": {
+    "dev:frontend": "pnpm --filter kornspace-frontend dev",
+    "dev:backend": "pnpm --filter kornspace-backend start:dev",
+    "build": "pnpm --recursive --if-present build",
+    "test": "pnpm --recursive --if-present test"
+  }
+}
