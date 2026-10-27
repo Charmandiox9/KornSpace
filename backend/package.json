@@ -1,0 +1,43 @@
+{
+  "name": "kornspace-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "prisma generate && nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:status": "prisma migrate status",
+    "test:compile": "tsc --module commonjs --target ES2022 --strict --esModuleInterop --emitDecoratorMetadata --experimentalDecorators --skipLibCheck --rootDir . --outDir .test-dist test/health.e2e-spec.ts test/prisma.service.spec.ts",
+    "test:unit": "pnpm test:compile && node --test .test-dist/test/prisma.service.spec.js",
+    "test:e2e": "pnpm test:compile && node --test .test-dist/test/health.e2e-spec.js",
+    "test": "pnpm test:compile && node --test .test-dist/test/prisma.service.spec.js .test-dist/test/health.e2e-spec.js"
+  },
+  "dependencies": {
+    "@apollo/server": "^5",
+    "@as-integrations/express5": "^1.1.2",
+    "@aws-sdk/client-s3": "^3.850.0",
+    "@nestjs/apollo": "^13.4.5",
+    "@nestjs/common": "^11.1.3",
+    "@nestjs/core": "^11.1.3",
+    "@nestjs/graphql": "^13.4.5",
+    "@nestjs/platform-express": "^11.1.3",
+    "@nestjs/swagger": "^11.4.7",
+    "@prisma/client": "6.19.0",
+    "graphql": "^16.14.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.7",
+    "@nestjs/schematics": "^11.0.5",
+    "@nestjs/testing": "^11.1.3",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.30",
+    "prisma": "6.19.0",
+    "typescript": "^5.8.3"
+  }
+}
