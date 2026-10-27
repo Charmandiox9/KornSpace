@@ -9,7 +9,8 @@ COPY frontend frontend
 COPY backend backend
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" DATABASE_URL_UNPOOLED="postgresql://build:build@localhost:5432/build" pnpm --filter kornspace-backend prisma:generate
 COPY backend/docker-entrypoint.sh /usr/local/bin/kornspace-backend-entrypoint
-RUN chmod +x /usr/local/bin/kornspace-backend-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/kornspace-backend-entrypoint \
+    && chmod +x /usr/local/bin/kornspace-backend-entrypoint
 WORKDIR /workspace/backend
 EXPOSE 3000
 ENTRYPOINT ["/usr/local/bin/kornspace-backend-entrypoint"]

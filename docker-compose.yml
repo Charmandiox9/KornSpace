@@ -9,9 +9,9 @@ services:
       VITE_API_PROXY_TARGET: http://backend:3000
     volumes:
       - .:/workspace
-      - workspace_node_modules:/workspace/node_modules
+      - workspace_node_modules_v2:/workspace/node_modules
       - frontend_node_modules:/workspace/frontend/node_modules
-      - backend_node_modules_prisma:/workspace/backend/node_modules
+      - backend_node_modules_prisma_v2:/workspace/backend/node_modules
     working_dir: /workspace/frontend
     expose:
       - "5173"
@@ -41,9 +41,9 @@ services:
       FILE_MAX_SIZE_BYTES: 104857600
     volumes:
       - .:/workspace
-      - workspace_node_modules:/workspace/node_modules
+      - workspace_node_modules_v2:/workspace/node_modules
       - frontend_node_modules:/workspace/frontend/node_modules
-      - backend_node_modules_prisma:/workspace/backend/node_modules
+      - backend_node_modules_prisma_v2:/workspace/backend/node_modules
     working_dir: /workspace/backend
     expose:
       - "3000"
@@ -114,8 +114,8 @@ services:
     restart: unless-stopped
 
 volumes:
-  workspace_node_modules:
+  workspace_node_modules_v2:
   frontend_node_modules:
-  backend_node_modules_prisma:
+  backend_node_modules_prisma_v2:
   redis_data:
   localstack_data:

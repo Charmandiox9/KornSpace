@@ -45,7 +45,7 @@ Los modos publican los mismos puertos; detén el modo activo con su configuraci�
 
 ## Volúmenes
 
-- `workspace_node_modules`, `frontend_node_modules`, `backend_node_modules_prisma`: dependencias de pnpm.
+- `workspace_node_modules_v2`, `frontend_node_modules`, `backend_node_modules_prisma_v2`: dependencias de pnpm.
 - `redis_data`: datos persistentes de Redis.
 - `localstack_data`: datos persistentes de LocalStack.
 - `postgres_data`: datos PostgreSQL del overlay.
