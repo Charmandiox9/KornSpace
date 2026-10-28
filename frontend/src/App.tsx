@@ -22,6 +22,30 @@ interface StoredFile {
   createdAt: string;
 }
 
+interface AuthenticatedUser {
+  id: string;
+  email: string;
+  name: string | null;
+  pictureUrl: string | null;
+}
+
+function isAuthenticatedUser(value: unknown): value is AuthenticatedUser {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === 'string'
+    && typeof record.email === 'string'
+    && (typeof record.name === 'string' || record.name === null)
+    && (typeof record.pictureUrl === 'string' || record.pictureUrl === null);
+}
+
+async function authenticatedFetch(input: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(input, { ...init, credentials: 'same-origin' });
+  if (response.status !== 401) return response;
+  const refreshResponse = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
+  if (!refreshResponse.ok) return response;
+  return fetch(input, { ...init, credentials: 'same-origin' });
+}
+
 function isStoredFile(value: unknown): value is StoredFile {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
@@ -113,6 +137,8 @@ export default function App() {
     ),
   );
   const [files, setFiles] = useState<StoredFile[]>([]);
+  const [authStatus, setAuthStatus] = useState<'loading' | 'authenticated' | 'anonymous'>('loading');
+  const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [notice, setNotice] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -128,7 +154,7 @@ export default function App() {
 
   const refreshFiles = useCallback(async (): Promise<void> => {
     try {
-      const response = await fetch('/api/files');
+      const response = await authenticatedFetch('/api/files');
       if (!response.ok) throw new Error(copy.loadError);
       const payload: unknown = await response.json();
       if (!Array.isArray(payload) || !payload.every(isStoredFile)) throw new Error(copy.loadError);
@@ -139,14 +165,44 @@ export default function App() {
   }, [copy.loadError]);
 
   useEffect(() => {
-    void refreshFiles();
-  }, [refreshFiles]);
+    let cancelled = false;
+    const loginError = new URLSearchParams(window.location.search).get('loginError');
+    if (loginError) {
+      setNotice(copy.loginErrorGoogle);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    void authenticatedFetch('/api/auth/me')
+      .then(async (response) => {
+        if (!response.ok) throw new Error(copy.loginFailure);
+        const payload: unknown = await response.json();
+        if (!isAuthenticatedUser(payload)) throw new Error(copy.loginFailure);
+        if (!cancelled) {
+          setUser(payload);
+          setAuthStatus('authenticated');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAuthStatus('anonymous');
+      });
+    return () => { cancelled = true; };
+  }, [copy.loginErrorGoogle, copy.loginFailure]);
+
+  async function logout(): Promise<void> {
+    await authenticatedFetch('/api/auth/logout', { method: 'POST' });
+    setUser(null);
+    setFiles([]);
+    setAuthStatus('anonymous');
+  }
 
   useEffect(() => {
-    if (!files.some((file) => file.status === 'PROCESSING')) return undefined;
+    if (authStatus === 'authenticated') void refreshFiles();
+  }, [authStatus, refreshFiles]);
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || !files.some((file) => file.status === 'PROCESSING')) return undefined;
     const timer = window.setInterval(() => void refreshFiles(), 2500);
     return () => window.clearInterval(timer);
-  }, [files, refreshFiles]);
+  }, [authStatus, files, refreshFiles]);
 
   async function uploadSelectedFile(file: File | undefined): Promise<void> {
     if (!file) return;
@@ -157,7 +213,7 @@ export default function App() {
     setIsUploading(true);
     setNotice(copy.uploading);
     try {
-      const response = await fetch(`/api/files?name=${encodeURIComponent(file.name)}`, {
+      const response = await authenticatedFetch(`/api/files?name=${encodeURIComponent(file.name)}`, {
         method: 'POST',
         headers: { 'Content-Type': file.type || 'application/octet-stream' },
         body: file,
@@ -227,16 +283,38 @@ export default function App() {
           </ActionButton>
         </section>
         <div className="sidebar-spacer" />
-        <p className="sidebar-caption">KornSpace</p>
+        <div className="sidebar-bottom">
+          {authStatus === 'authenticated' && (
+            <ActionButton ariaLabel={copy.logout} title={copy.logout} onClick={() => void logout()}>
+              <span aria-hidden="true">↪</span><span>{copy.logout}</span>
+            </ActionButton>
+          )}
+          <p className="sidebar-caption">KornSpace</p>
+        </div>
       </aside>
 
       <main className="page">
+        {authStatus === 'loading' ? (
+          <section className="login-card" aria-live="polite"><p>{copy.loginChecking}</p></section>
+        ) : authStatus === 'anonymous' ? (
+          <section className="login-card" aria-labelledby="login-title">
+            <p className="eyebrow">{copy.eyebrow}</p>
+            <h1 id="login-title">{copy.loginTitle}</h1>
+            <p className="intro">{copy.loginDescription}</p>
+            {notice && <p className="notice" role="alert">{notice}</p>}
+            <a className="google-login-button" href="/api/auth/google">
+              <GoogleIcon />
+              {copy.loginWithGoogle}
+            </a>
+          </section>
+        ) : (
         <section className="workspace" aria-labelledby="welcome-title">
           <header className="workspace-header">
             <div>
               <p className="eyebrow">{copy.eyebrow}</p>
               <h1 id="welcome-title">{copy.headline}</h1>
               <p className="intro">{copy.description}</p>
+              {user && <p className="account-label">{copy.account}: {user.email}</p>}
             </div>
             <input
               ref={fileInputRef}
@@ -280,8 +358,20 @@ export default function App() {
             )}
           </section>
         </section>
+        )}
         <footer className="footer">{copy.footer}</footer>
       </main>
     </div>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg className="google-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.39-.18-2.05H12v3.88h5.38a4.6 4.6 0 0 1-2 3.02v2.52h3.23c1.9-1.75 2.99-4.33 2.99-7.37Z" />
+      <path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.62-2.4l-3.23-2.52c-.9.6-2.04.96-3.39.96-2.6 0-4.8-1.76-5.59-4.12H3.07v2.6A10 10 0 0 0 12 22Z" />
+      <path fill="#FBBC05" d="M6.41 13.92a6 6 0 0 1 0-3.84v-2.6H3.07a10 10 0 0 0 0 9.04l3.34-2.6Z" />
+      <path fill="#EA4335" d="M12 5.96c1.47 0 2.79.5 3.82 1.5l2.86-2.86C16.96 2.99 14.7 2 12 2a10 10 0 0 0-8.93 5.48l3.34 2.6C7.2 7.72 9.4 5.96 12 5.96Z" />
+    </svg>
   );
 }

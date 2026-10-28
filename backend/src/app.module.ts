@@ -6,6 +6,8 @@ import { HealthController } from './health.controller';
 import { HealthResolver } from './health.resolver';
 import { PrismaModule } from './prisma/prisma.module';
 import { FilesModule } from './files/files.module';
+import { AuthModule } from './auth/auth.module';
+import { RedisModule } from './redis/redis.module';
 
 interface GraphQLContextInput {
   req: Request;
@@ -15,6 +17,8 @@ interface GraphQLContextInput {
 @Module({
   imports: [
     PrismaModule,
+    RedisModule,
+    AuthModule,
     FilesModule,
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,

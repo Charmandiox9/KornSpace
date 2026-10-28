@@ -24,6 +24,12 @@ services:
       NODE_ENV: production
       DATABASE_URL: ${POSTGRES_DATABASE_URL:?Define POSTGRES_DATABASE_URL para producción}
       DATABASE_URL_UNPOOLED: ${POSTGRES_DATABASE_URL:?Define POSTGRES_DATABASE_URL para producción}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:?Define GOOGLE_OAUTH_CLIENT_ID para producción}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:?Define GOOGLE_OAUTH_CLIENT_SECRET para producción}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:?Define GOOGLE_OAUTH_REDIRECT_URI para producción}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?Define FRONTEND_ORIGIN para producción}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET para producción}
+      AUTH_COOKIE_SECURE: "true"
     depends_on:
       postgres:
         condition: service_healthy

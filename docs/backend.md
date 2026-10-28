@@ -2,6 +2,8 @@
 
 API NestJS con TypeScript estricto. REST sirve las operaciones de archivos y salud; GraphQL está disponible para consultas. Prisma centraliza el acceso PostgreSQL; los binarios se guardan en almacenamiento compatible con S3.
 
+Google OAuth/OpenID Connect autentica las cuentas. El backend valida el JWT de cada solicitud privada y verifica que Redis mantenga activa la sesión asociada. Consulta [OAuth de Google y sesiones](auth-google.md) para crear y configurar credenciales.
+
 ## Comandos
 
 Desde la raíz:
@@ -11,18 +13,25 @@ Desde la raíz:
 | `pnpm dev:backend` | Inicia NestJS con recarga automática. Fuera de Docker, exporta `DATABASE_URL` y `DATABASE_URL_UNPOOLED` al proceso. |
 | `pnpm --filter kornspace-backend build` | Genera Prisma Client y compila NestJS. |
 | `pnpm --filter kornspace-backend test:unit` | Ejecuta pruebas unitarias del servicio Prisma y validación de archivos. |
-| `pnpm --filter kornspace-backend test:e2e` | Ejecuta pruebas HTTP E2E para salud y archivos. |
+| `pnpm --filter kornspace-backend test:e2e` | Ejecuta pruebas HTTP E2E para salud, autenticación y archivos. |
 | `pnpm --filter kornspace-backend start:prod` | Ejecuta el backend compilado. |
 
 ## Interfaces
 
 - `GET /api/health`: comprueba la API y PostgreSQL.
+- `GET /api/auth/google`: inicia el acceso con Google.
+- `GET /api/auth/google/callback`: valida el callback e inicia la sesión.
+- `GET /api/auth/me`: devuelve el usuario de la sesión activa.
+- `POST /api/auth/refresh`: renueva el JWT si la sesión Redis sigue activa.
+- `POST /api/auth/logout`: revoca la sesión actual.
 - `GET /api/docs`: documentación Swagger.
 - `/graphql`: GraphQL; GraphiQL está habilitado en desarrollo. Actualmente incluye `health`.
 - `GET /api/files`: lista metadatos.
 - `POST /api/files?name=<nombre>`: sube un binario; requiere `Content-Type` y `Content-Length`.
 - `GET /api/files/:id`: descarga un archivo disponible.
 - `GET /api/files/:id/status`: consulta estado de procesamiento.
+
+Todas las rutas de archivos requieren JWT y sesión activa; los archivos se consultan por propietario. La ruta de salud y el inicio OAuth son públicos.
 
 El tamaño máximo de archivo es 100 MiB. Nginx está configurado para aceptar ese tamaño.
 
@@ -34,6 +43,6 @@ En desarrollo, el interceptor registra método/ruta u operación GraphQL, result
 
 ## Configuración y límites actuales
 
-Compose configura `PORT`, `NODE_ENV`, `REDIS_HOST`, `REDIS_PORT`, `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AWS_REGION`, credenciales locales, `S3_ENDPOINT`, `S3_BUCKET`, `SQS_ENDPOINT`, `SQS_QUEUE_URL`, `FILE_ASYNC_THRESHOLD_BYTES` y `FILE_MAX_SIZE_BYTES`.
+Compose configura `PORT`, `NODE_ENV`, `REDIS_HOST`, `REDIS_PORT`, `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, las credenciales OAuth, `FRONTEND_ORIGIN`, `JWT_SECRET`, los TTL y `AUTH_COOKIE_SECURE`, además de AWS y SQS. `.env.example` enumera las variables; [la guía OAuth](auth-google.md) explica cómo obtenerlas.
 
-Redis se inicia en Compose, pero el backend todavía no implementa caché o sesiones. Google OAuth tampoco está implementado. La API de archivos no tiene autenticación ni permisos por usuario.
+Redis almacena los estados OAuth de un solo uso y las sesiones activas del servidor.

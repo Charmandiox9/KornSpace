@@ -8,6 +8,17 @@ datasource db {
   directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
+model User {
+  id           String       @id @default(uuid()) @db.Uuid
+  googleSubject String       @unique
+  email        String
+  name         String?
+  pictureUrl   String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  files        StoredFile[]
+}
+
 enum FileStatus {
   PROCESSING
   AVAILABLE
@@ -23,4 +34,8 @@ model StoredFile {
   checksum    String?
   status      FileStatus @default(PROCESSING)
   createdAt   DateTime   @default(now())
+  ownerId     String?    @db.Uuid
+  owner       User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, createdAt])
 }

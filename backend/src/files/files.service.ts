@@ -60,8 +60,8 @@ export class FilesService {
     });
   }
 
-  async list(): Promise<StoredFileResponse[]> {
-    const files = await this.prisma.storedFile.findMany({ orderBy: { createdAt: 'desc' } });
+  async list(ownerId: string): Promise<StoredFileResponse[]> {
+    const files = await this.prisma.storedFile.findMany({ where: { ownerId }, orderBy: { createdAt: 'desc' } });
     return files.map((file) => this.toResponse(file));
   }
 
@@ -70,6 +70,7 @@ export class FilesService {
     name: string,
     contentType: string,
     sizeBytes: number,
+    ownerId: string,
   ): Promise<UploadFileResult> {
     this.validateUpload(name, contentType, sizeBytes);
     const id = randomUUID();
@@ -93,6 +94,7 @@ export class FilesService {
           contentType,
           sizeBytes: BigInt(sizeBytes),
           s3Key,
+          ownerId,
           checksum: asynchronous ? null : streamMetadata.checksum(),
           status: asynchronous ? 'PROCESSING' : 'AVAILABLE',
         },
@@ -121,8 +123,8 @@ export class FilesService {
     }
   }
 
-  async getDownload(id: string): Promise<{ file: StoredFileResponse; body: Readable }> {
-    const file = await this.prisma.storedFile.findUnique({ where: { id } });
+  async getDownload(id: string, ownerId: string): Promise<{ file: StoredFileResponse; body: Readable }> {
+    const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId } });
     if (!file) {
       throw new NotFoundException('No se encontró el archivo solicitado.');
     }
@@ -140,8 +142,8 @@ export class FilesService {
     return { file: this.toResponse(file), body: result.Body as Readable };
   }
 
-  async getStatus(id: string): Promise<StoredFileResponse> {
-    const file = await this.prisma.storedFile.findUnique({ where: { id } });
+  async getStatus(id: string, ownerId: string): Promise<StoredFileResponse> {
+    const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId } });
     if (!file) {
       throw new NotFoundException('No se encontró el archivo solicitado.');
     }

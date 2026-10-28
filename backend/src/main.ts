@@ -7,7 +7,10 @@ import { OperationLoggingInterceptor } from './common/interceptors/operation-log
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api');
-  app.enableCors();
+  app.enableCors({
+    origin: [process.env.FRONTEND_ORIGIN ?? 'http://localhost', 'http://localhost:5173'],
+    credentials: true,
+  });
 
   if ((process.env.NODE_ENV ?? 'development') === 'development') {
     app.useGlobalInterceptors(new OperationLoggingInterceptor());
@@ -17,6 +20,8 @@ async function bootstrap() {
     .setTitle('KornSpace REST API')
     .setDescription('Endpoints REST para operaciones y transferencia de archivos.')
     .setVersion('0.1.0')
+    .addApiKey({ type: 'apiKey', in: 'cookie', name: 'kornspace_access' }, 'kornspace-access')
+    .addApiKey({ type: 'apiKey', in: 'cookie', name: 'kornspace_session' }, 'kornspace-session')
     .build();
   const openApiDocument = SwaggerModule.createDocument(app, openApiConfig);
   SwaggerModule.setup('docs', app, openApiDocument, { useGlobalPrefix: true });

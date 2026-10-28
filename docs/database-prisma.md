@@ -2,6 +2,8 @@
 
 Prisma Client es el único ORM del backend y `PrismaService` centraliza el cliente. El esquema está en `backend/prisma/schema.prisma`; las migraciones versionadas, en `backend/prisma/migrations/`.
 
+`User` enlaza la identidad de Google con KornSpace. `StoredFile.ownerId` identifica a su propietario. Los archivos anteriores al inicio de sesión pueden conservar `ownerId` nulo y no se muestran a las cuentas autenticadas. Los cambios del esquema incluyen una migración versionada.
+
 ## Comandos
 
 Desde la raíz, los scripts cargan automáticamente el `.env` raíz:

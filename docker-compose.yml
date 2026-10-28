@@ -30,6 +30,14 @@ services:
       REDIS_PORT: 6379
       DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL en .env}
       DATABASE_URL_UNPOOLED: ${DATABASE_URL_UNPOOLED:?Define DATABASE_URL_UNPOOLED en .env}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost/api/auth/google/callback}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en .env}
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-604800}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
@@ -49,7 +57,7 @@ services:
       - "3000"
     depends_on:
       redis:
-        condition: service_started
+        condition: service_healthy
       terraform:
         condition: service_completed_successfully
     restart: unless-stopped
@@ -63,6 +71,11 @@ services:
       - "6379:6379"
     expose:
       - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   localstack:

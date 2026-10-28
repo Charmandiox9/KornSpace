@@ -7,6 +7,7 @@ import { Test } from '@nestjs/testing';
 import { FilesController } from '../src/files/files.controller';
 import { FilesService } from '../src/files/files.service';
 import type { StoredFileResponse, UploadFileResult } from '../src/files/file.types';
+import { SessionJwtGuard } from '../src/auth/session-jwt.guard';
 
 test('file REST endpoints expose upload, listing, and processing status', async () => {
   const file: StoredFileResponse = {
@@ -25,10 +26,12 @@ test('file REST endpoints expose upload, listing, and processing status', async 
     checksum: 'abc123',
   };
   let receivedName = '';
+  let receivedOwnerId = '';
   const filesServiceStub: Pick<FilesService, 'list' | 'upload' | 'getStatus' | 'getDownload'> = {
-    list: async () => [file],
-    upload: async (_source, name): Promise<UploadFileResult> => {
+    list: async (ownerId) => { receivedOwnerId = ownerId; return [file]; },
+    upload: async (_source, name, _contentType, _sizeBytes, ownerId): Promise<UploadFileResult> => {
       receivedName = name;
+      receivedOwnerId = ownerId;
       return { file, asynchronous: true };
     },
     getStatus: async () => file,
@@ -37,6 +40,11 @@ test('file REST endpoints expose upload, listing, and processing status', async 
   const moduleRef = await Test.createTestingModule({
     controllers: [FilesController],
     providers: [{ provide: FilesService, useValue: filesServiceStub }],
+  }).overrideGuard(SessionJwtGuard).useValue({
+    canActivate: (context: { switchToHttp: () => { getRequest: () => { authContext?: { userId: string } } } }) => {
+      context.switchToHttp().getRequest().authContext = { userId: 'user-1' };
+      return true;
+    },
   }).compile();
   const app: INestApplication = moduleRef.createNestApplication();
   app.setGlobalPrefix('api');
@@ -55,10 +63,12 @@ test('file REST endpoints expose upload, listing, and processing status', async 
     const uploadPayload: unknown = await uploadResponse.json();
     assert.equal(uploadResponse.status, 202);
     assert.equal(receivedName, 'large.txt');
+    assert.equal(receivedOwnerId, 'user-1');
     assert.deepEqual(uploadPayload, { file, asynchronous: true });
 
     const listResponse = await fetch(baseUrl);
     assert.equal(listResponse.status, 200);
+    assert.equal(receivedOwnerId, 'user-1');
     assert.deepEqual(await listResponse.json(), [file]);
 
     const statusResponse = await fetch(`${baseUrl}/${file.id}/status`);

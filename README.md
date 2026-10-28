@@ -5,6 +5,7 @@ Plataforma de almacenamiento en desarrollo. React, NestJS, PostgreSQL/Prisma, Re
 ## Guías
 
 - [Puesta en marcha y modos Compose](docs/getting-started.md)
+- [OAuth de Google y sesiones](docs/auth-google.md)
 - [Frontend React](docs/frontend.md)
 - [Backend NestJS y API](docs/backend.md)
 - [PostgreSQL y Prisma](docs/database-prisma.md)

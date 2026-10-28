@@ -34,6 +34,14 @@ export interface TranslationCatalog {
   loadError: string;
   fileLimit: string;
   unknownError: string;
+  loginTitle: string;
+  loginDescription: string;
+  loginWithGoogle: string;
+  loginChecking: string;
+  loginFailure: string;
+  loginErrorGoogle: string;
+  logout: string;
+  account: string;
 }
 
 export const translations = {
@@ -70,6 +78,14 @@ export const translations = {
     loadError: 'No se pudieron cargar los archivos.',
     fileLimit: 'El tamaño máximo es 100 MiB.',
     unknownError: 'Error inesperado.',
+    loginTitle: 'Tus archivos, en un espacio seguro.',
+    loginDescription: 'Inicia sesión con Google para subir y consultar tus archivos personales.',
+    loginWithGoogle: 'Continuar con Google',
+    loginChecking: 'Verificando tu sesión…',
+    loginFailure: 'No se pudo verificar la sesión. Inténtalo nuevamente.',
+    loginErrorGoogle: 'Google no pudo completar el inicio de sesión. Vuelve a intentarlo.',
+    logout: 'Cerrar sesión',
+    account: 'Cuenta',
   },
   en: {
     pageTitle: 'KornSpace — Your files, in their place',
@@ -104,6 +120,14 @@ export const translations = {
     loadError: 'Files could not be loaded.',
     fileLimit: 'Maximum file size is 100 MiB.',
     unknownError: 'Unexpected error.',
+    loginTitle: 'Your files, in a space of your own.',
+    loginDescription: 'Sign in with Google to upload and access your personal files.',
+    loginWithGoogle: 'Continue with Google',
+    loginChecking: 'Checking your session…',
+    loginFailure: 'Your session could not be verified. Please try again.',
+    loginErrorGoogle: 'Google could not complete sign in. Please try again.',
+    logout: 'Sign out',
+    account: 'Account',
   },
 } satisfies Record<Language, TranslationCatalog>;
 
