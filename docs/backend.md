@@ -41,6 +41,8 @@ Los objetos se guardan en S3 y los metadatos en PostgreSQL. Los archivos mayores
 
 En desarrollo, el interceptor registra método/ruta u operación GraphQL, resultado y duración. No registra cuerpos, cookies, tokens ni contenido de archivos. En producción queda desactivado.
 
+El bootstrap aplica `ValidationPipe` global: transforma DTOs, rechaza propiedades no declaradas y evita incluir valores de entrada en errores de validación. CORS acepta los orígenes de `FRONTEND_ORIGIN` (separados por comas si hay varios) y los orígenes locales de Vite en desarrollo. Al iniciar imprime entorno, puerto, API REST, Swagger y GraphQL.
+
 ## Configuración y límites actuales
 
 Compose configura `PORT`, `NODE_ENV`, `REDIS_HOST`, `REDIS_PORT`, `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, las credenciales OAuth, `FRONTEND_ORIGIN`, `JWT_SECRET`, los TTL y `AUTH_COOKIE_SECURE`, además de AWS y SQS. `.env.example` enumera las variables; [la guía OAuth](auth-google.md) explica cómo obtenerlas.
