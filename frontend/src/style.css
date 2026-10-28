@@ -87,12 +87,14 @@ a:focus-visible {
   min-height: 100%;
   grid-template-rows: auto 1fr;
   justify-self: center;
+  justify-items: center;
   gap: clamp(44px, 9vh, 92px);
   padding-top: clamp(8px, 2vh, 20px);
 }
 
 .public-header {
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
@@ -538,6 +540,7 @@ a:focus-visible {
   background: var(--surface);
   box-shadow: var(--shadow);
   text-align: center;
+  justify-self: center;
 }
 
 .login-card::before {

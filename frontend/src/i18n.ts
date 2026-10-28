@@ -3,6 +3,9 @@ export type Theme = 'light' | 'dark';
 
 export interface TranslationCatalog {
   pageTitle: string;
+  loginMetaTitle: string;
+  onboardingMetaTitle: string;
+  socialLocale: string;
   appearanceControls: string;
   languageEnglish: string;
   languageSpanish: string;
@@ -66,6 +69,9 @@ export interface TranslationCatalog {
 export const translations = {
   es: {
     pageTitle: 'KornSpace — Tus archivos, en su lugar',
+    loginMetaTitle: 'KornSpace — Inicio de sesión seguro',
+    onboardingMetaTitle: 'KornSpace — Configura tu cuenta',
+    socialLocale: 'es_CL',
     appearanceControls: 'Preferencias de apariencia',
     languageEnglish: 'Inglés',
     languageSpanish: 'Español',
@@ -127,6 +133,9 @@ export const translations = {
   },
   en: {
     pageTitle: 'KornSpace — Your files, in their place',
+    loginMetaTitle: 'KornSpace — Secure sign in',
+    onboardingMetaTitle: 'KornSpace — Set up your account',
+    socialLocale: 'en_US',
     appearanceControls: 'Appearance preferences',
     languageEnglish: 'English',
     languageSpanish: 'Spanish',
