@@ -1,9 +1,11 @@
 import {
   Controller,
+  Body,
   Get,
   HttpCode,
   Logger,
   Post,
+  Patch,
   Query,
   Req,
   Res,
@@ -13,6 +15,8 @@ import {
 } from '@nestjs/common';
 import {
   ApiCookieAuth,
+  ApiBadRequestResponse,
+  ApiConflictResponse,
   ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
@@ -20,7 +24,9 @@ import {
   ApiQuery,
   ApiResponse,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import type { Response } from 'express';
 import { clearAuthenticationCookies, setAuthenticationCookies } from './auth-cookie.util';
 import type { AuthenticatedRequest } from './auth-request.types';
@@ -36,8 +42,19 @@ class PublicUserResponseDto implements PublicUserResponse {
   email!: string;
   @ApiProperty({ nullable: true })
   name!: string | null;
+  @ApiProperty({ nullable: true })
+  username!: string | null;
   @ApiProperty({ nullable: true, format: 'uri' })
   pictureUrl!: string | null;
+}
+
+class SetUsernameRequestDto {
+  @ApiProperty({ minLength: 3, maxLength: 24, pattern: '^[a-zA-Z0-9_]+$' })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(24)
+  @Matches(/^[a-zA-Z0-9_]+$/u)
+  username!: string;
 }
 
 @Controller('auth')
@@ -93,6 +110,21 @@ export class AuthController {
   @ApiOkResponse({ type: PublicUserResponseDto })
   getCurrentUser(@Req() request: AuthenticatedRequest): Promise<PublicUserResponse> {
     return this.authService.getCurrentUser(request.authContext?.userId ?? '');
+  }
+
+  @Patch('username')
+  @UseGuards(SessionJwtGuard)
+  @ApiCookieAuth('kornspace-access')
+  @ApiOperation({ summary: 'Define el nombre de usuario de la cuenta' })
+  @ApiOkResponse({ type: PublicUserResponseDto })
+  @ApiBadRequestResponse({ description: 'El nombre debe tener entre 3 y 24 caracteres alfanuméricos o guion bajo.' })
+  @ApiConflictResponse({ description: 'El nombre de usuario ya está en uso.' })
+  @ApiUnauthorizedResponse({ description: 'La sesión no es válida.' })
+  setUsername(
+    @Req() request: AuthenticatedRequest,
+    @Body() body: SetUsernameRequestDto,
+  ): Promise<PublicUserResponse> {
+    return this.authService.setUsername(request.authContext?.userId ?? '', body.username);
   }
 
   @Post('refresh')

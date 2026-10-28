@@ -47,6 +47,20 @@ export interface TranslationCatalog {
   loginErrorServer: string;
   logout: string;
   account: string;
+  usernameTitle: string;
+  usernameDescription: string;
+  usernameLabel: string;
+  usernamePlaceholder: string;
+  usernameHint: string;
+  usernameContinue: string;
+  usernameSaving: string;
+  usernameTaken: string;
+  usernameSaveError: string;
+  accountMenu: string;
+  accountDetails: string;
+  profileName: string;
+  profileNameUnavailable: string;
+  emailLabel: string;
 }
 
 export const translations = {
@@ -96,6 +110,20 @@ export const translations = {
     loginErrorServer: 'El servidor no pudo crear la sesión. Revisa los logs del backend y vuelve a intentarlo.',
     logout: 'Cerrar sesión',
     account: 'Cuenta',
+    usernameTitle: 'Elige tu nombre de usuario',
+    usernameDescription: 'Este nombre identificará tu espacio. Podrás continuar cuando lo hayas elegido.',
+    usernameLabel: 'Nombre de usuario',
+    usernamePlaceholder: 'tu_nombre',
+    usernameHint: 'Usa entre 3 y 24 letras, números o guiones bajos.',
+    usernameContinue: 'Continuar',
+    usernameSaving: 'Guardando…',
+    usernameTaken: 'Ese nombre de usuario ya está en uso. Prueba con otro.',
+    usernameSaveError: 'No se pudo guardar el nombre de usuario. Inténtalo de nuevo.',
+    accountMenu: 'Abrir menú de cuenta',
+    accountDetails: 'Datos de la cuenta',
+    profileName: 'Nombre',
+    profileNameUnavailable: 'No indicado',
+    emailLabel: 'Correo electrónico',
   },
   en: {
     pageTitle: 'KornSpace — Your files, in their place',
@@ -143,6 +171,20 @@ export const translations = {
     loginErrorServer: 'The server could not create your session. Check the backend logs and try again.',
     logout: 'Sign out',
     account: 'Account',
+    usernameTitle: 'Choose your username',
+    usernameDescription: 'This name identifies your space. Choose one to continue.',
+    usernameLabel: 'Username',
+    usernamePlaceholder: 'your_name',
+    usernameHint: 'Use 3 to 24 letters, numbers, or underscores.',
+    usernameContinue: 'Continue',
+    usernameSaving: 'Saving…',
+    usernameTaken: 'That username is already taken. Try another one.',
+    usernameSaveError: 'Your username could not be saved. Please try again.',
+    accountMenu: 'Open account menu',
+    accountDetails: 'Account details',
+    profileName: 'Name',
+    profileNameUnavailable: 'Not provided',
+    emailLabel: 'Email address',
   },
 } satisfies Record<Language, TranslationCatalog>;
 

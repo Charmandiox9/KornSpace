@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   getInitialLanguage,
   getInitialTheme,
@@ -35,6 +35,7 @@ interface AuthenticatedUser {
   id: string;
   email: string;
   name: string | null;
+  username: string | null;
   pictureUrl: string | null;
 }
 
@@ -44,6 +45,7 @@ function isAuthenticatedUser(value: unknown): value is AuthenticatedUser {
   return typeof record.id === 'string'
     && typeof record.email === 'string'
     && (typeof record.name === 'string' || record.name === null)
+    && (typeof record.username === 'string' || record.username === null)
     && (typeof record.pictureUrl === 'string' || record.pictureUrl === null);
 }
 
@@ -161,6 +163,8 @@ export default function App() {
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [notice, setNotice] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [username, setUsername] = useState('');
+  const [isSavingUsername, setIsSavingUsername] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const copy = translations[language];
   const nextLanguage = getNextLanguage(language);
@@ -231,6 +235,29 @@ export default function App() {
     setAuthStatus('anonymous');
   }
 
+  async function saveUsername(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setIsSavingUsername(true);
+    setNotice('');
+    try {
+      const response = await authenticatedFetch('/api/auth/username', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      });
+      if (response.status === 409) throw new Error(copy.usernameTaken);
+      if (!response.ok) throw new Error(copy.usernameSaveError);
+      const payload: unknown = await response.json();
+      if (!isAuthenticatedUser(payload)) throw new Error(copy.usernameSaveError);
+      setUser(payload);
+      setUsername('');
+    } catch (error: unknown) {
+      setNotice(error instanceof Error ? error.message : copy.usernameSaveError);
+    } finally {
+      setIsSavingUsername(false);
+    }
+  }
+
   useEffect(() => {
     if (authStatus === 'authenticated') void refreshFiles();
   }, [authStatus, refreshFiles]);
@@ -292,75 +319,139 @@ export default function App() {
   }, [theme]);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${authStatus === 'authenticated' && user?.username ? '' : ' app-shell-public'}`}>
+      {authStatus === 'authenticated' && user?.username && (
       <aside className="sidebar" aria-label={copy.appearanceControls}>
         <a className="brand" href="/" aria-label="KornSpace">
           <span className="brand-mark" aria-hidden="true">K</span>
           <span className="brand-name">KornSpace</span>
         </a>
 
-        <section className="sidebar-actions" aria-label={copy.appearanceControls}>
-          <p className="sidebar-section-label">{copy.appearanceControls}</p>
-          <ActionButton
-            ariaLabel={languageActionLabel}
-            onClick={() => setLanguage(nextLanguage)}
-            title={languageActionLabel}
-          >
-            <span className="language-code" aria-hidden="true">{nextLanguage.toUpperCase()}</span>
-            <span>{nextLanguageName}</span>
-          </ActionButton>
-          <ActionButton
-            ariaLabel={theme === 'light' ? copy.switchThemeToDark : copy.switchThemeToLight}
-            onClick={() => setTheme(nextTheme)}
-            pressed={theme === 'dark'}
-            title={theme === 'light' ? copy.switchThemeToDark : copy.switchThemeToLight}
-          >
-            <span className="theme-icon">{theme === 'light' ? <MoonIcon /> : <SunIcon />}</span>
-            <span>{theme === 'light' ? copy.darkTheme : copy.lightTheme}</span>
-          </ActionButton>
-        </section>
         <div className="sidebar-spacer" />
         <div className="sidebar-bottom">
           {authStatus === 'authenticated' && user && (
-            <div className="sidebar-account" aria-label={copy.account}>
-              <span className="profile-avatar" aria-hidden="true">
-                {user.pictureUrl
-                  ? <img src={user.pictureUrl} alt="" referrerPolicy="no-referrer" />
-                  : getProfileInitials(user)}
-              </span>
-              <span className="profile-details">
-                <span className="profile-name">{user.name ?? user.email}</span>
-                <span className="profile-email">{user.email}</span>
-              </span>
-              <button
-                className="logout-button"
-                type="button"
-                aria-label={copy.logout}
-                title={copy.logout}
-                onClick={() => void logout()}
-              >
-                <LogoutIcon />
-                <span className="logout-button-label">{copy.logout}</span>
-              </button>
-            </div>
+            <details className="account-menu">
+              <summary className="sidebar-account-trigger" aria-label={copy.accountMenu}>
+                <span className="profile-avatar" aria-hidden="true">
+                  {user.pictureUrl
+                    ? <img src={user.pictureUrl} alt="" referrerPolicy="no-referrer" />
+                    : getProfileInitials(user)}
+                </span>
+                <span className="profile-details">
+                  <span className="profile-name">@{user.username}</span>
+                  <span className="profile-email">{user.email}</span>
+                </span>
+                <span className="account-menu-chevron" aria-hidden="true">⌃</span>
+              </summary>
+              <div className="account-menu-panel">
+                <p className="account-menu-title">{copy.accountDetails}</p>
+                <dl className="account-details-list">
+                  <div><dt>{copy.profileName}</dt><dd>{user.name ?? copy.profileNameUnavailable}</dd></div>
+                  <div><dt>{copy.usernameLabel}</dt><dd>@{user.username}</dd></div>
+                  <div><dt>{copy.emailLabel}</dt><dd>{user.email}</dd></div>
+                </dl>
+                <div className="account-menu-divider" />
+                <p className="account-menu-title">{copy.appearanceControls}</p>
+                <div className="account-menu-actions">
+                  <ActionButton
+                    ariaLabel={languageActionLabel}
+                    onClick={() => setLanguage(nextLanguage)}
+                    title={languageActionLabel}
+                  >
+                    <span className="language-code" aria-hidden="true">{nextLanguage.toUpperCase()}</span>
+                    <span>{nextLanguageName}</span>
+                  </ActionButton>
+                  <ActionButton
+                    ariaLabel={theme === 'light' ? copy.switchThemeToDark : copy.switchThemeToLight}
+                    onClick={() => setTheme(nextTheme)}
+                    pressed={theme === 'dark'}
+                    title={theme === 'light' ? copy.switchThemeToDark : copy.switchThemeToLight}
+                  >
+                    <span className="theme-icon">{theme === 'light' ? <MoonIcon /> : <SunIcon />}</span>
+                    <span>{theme === 'light' ? copy.darkTheme : copy.lightTheme}</span>
+                  </ActionButton>
+                </div>
+                <button
+                  className="logout-button account-menu-logout"
+                  type="button"
+                  onClick={() => void logout()}
+                >
+                  <LogoutIcon />
+                  <span>{copy.logout}</span>
+                </button>
+              </div>
+            </details>
           )}
           <p className="sidebar-caption">KornSpace</p>
         </div>
       </aside>
+      )}
 
       <main className="page">
         {authStatus === 'loading' ? (
           <section className="login-card" aria-live="polite"><p>{copy.loginChecking}</p></section>
         ) : authStatus === 'anonymous' ? (
-          <section className="login-card" aria-labelledby="login-title">
+          <div className="public-page">
+            <header className="public-header">
+              <a className="brand" href="/" aria-label="KornSpace">
+                <span className="brand-mark" aria-hidden="true">K</span>
+                <span className="brand-name">KornSpace</span>
+              </a>
+              <div className="public-controls">
+                <ActionButton ariaLabel={languageActionLabel} onClick={() => setLanguage(nextLanguage)} title={languageActionLabel}>
+                  <span className="language-code" aria-hidden="true">{nextLanguage.toUpperCase()}</span>
+                  <span>{nextLanguageName}</span>
+                </ActionButton>
+                <ActionButton
+                  ariaLabel={theme === 'light' ? copy.switchThemeToDark : copy.switchThemeToLight}
+                  onClick={() => setTheme(nextTheme)}
+                  pressed={theme === 'dark'}
+                  title={theme === 'light' ? copy.switchThemeToDark : copy.switchThemeToLight}
+                >
+                  <span className="theme-icon">{theme === 'light' ? <MoonIcon /> : <SunIcon />}</span>
+                  <span>{theme === 'light' ? copy.darkTheme : copy.lightTheme}</span>
+                </ActionButton>
+              </div>
+            </header>
+            <section className="login-card" aria-labelledby="login-title">
+              <p className="eyebrow">{copy.eyebrow}</p>
+              <h1 id="login-title">{copy.loginTitle}</h1>
+              <p className="intro">{copy.loginDescription}</p>
+              {notice && <p className="notice" role="alert">{notice}</p>}
+              <a className="google-login-button" href={apiUrl('/api/auth/google')}>
+                <GoogleIcon />
+                {copy.loginWithGoogle}
+              </a>
+            </section>
+          </div>
+        ) : !user?.username ? (
+          <section className="login-card username-card" aria-labelledby="username-title">
             <p className="eyebrow">{copy.eyebrow}</p>
-            <h1 id="login-title">{copy.loginTitle}</h1>
-            <p className="intro">{copy.loginDescription}</p>
-            {notice && <p className="notice" role="alert">{notice}</p>}
-            <a className="google-login-button" href={apiUrl('/api/auth/google')}>
-              <GoogleIcon />
-              {copy.loginWithGoogle}
-            </a>
+            <h1 id="username-title">{copy.usernameTitle}</h1>
+            <p className="intro">{copy.usernameDescription}</p>
+            <form className="username-form" onSubmit={(event) => void saveUsername(event)}>
+              <label htmlFor="username">{copy.usernameLabel}</label>
+              <div className="username-input-wrap">
+                <span aria-hidden="true">@</span>
+                <input
+                  id="username"
+                  name="username"
+                  autoComplete="username"
+                  minLength={3}
+                  maxLength={24}
+                  pattern="[A-Za-z0-9_]+"
+                  required
+                  value={username}
+                  onChange={(event) => setUsername(event.currentTarget.value)}
+                  placeholder={copy.usernamePlaceholder}
+                />
+              </div>
+              <p className="username-hint">{copy.usernameHint}</p>
+              {notice && <p className="notice" role="alert">{notice}</p>}
+              <button className="google-login-button username-submit" type="submit" disabled={isSavingUsername}>
+                {isSavingUsername ? copy.usernameSaving : copy.usernameContinue}
+              </button>
+            </form>
           </section>
         ) : (
         <section className="workspace" aria-labelledby="welcome-title">
