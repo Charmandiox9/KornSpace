@@ -53,7 +53,38 @@ Usa los campos del formulario: **título, descripción, criterios de aceptación
   - Se define si los permisos de carpeta se heredan, cómo se manejan excepciones y qué ve el destinatario.
   - Se especifican invitaciones a cuentas aún no registradas, revocación y eliminación de propietario/contenido.
   - Las reglas quedan documentadas en `docs/proyecto.md` o en un documento enlazado antes de iniciar el modelo de datos de compartición.
-- **Columna:** Backlog.
+- **Decisiones confirmadas (2026-10-28):**
+  - **Propietario:** quien crea el archivo o carpeta es su propietario, incluso si lo crea dentro de una carpeta compartida. Mover un recurso no cambia su propietario.
+  - Los permisos se evalúan por recurso. Quien es propietario de un recurso conserva las acciones de propietario en ese recurso, aunque participe como editor en la carpeta que lo contiene.
+  - **Borrado de contenido:** el propietario puede borrar sus archivos de forma permanente; se eliminan sus metadatos y el objeto de S3, y se revocan los permisos directos de ese recurso. Las carpetas sólo se pueden borrar cuando están vacías. No habrá papelera en el MVP.
+  - **Destinatarios:** se puede buscar una cuenta registrada por nombre de usuario o correo. El correo se normaliza y debe identificar una sola cuenta. Una cuenta aún no registrada sólo se puede invitar por correo; la invitación queda pendiente 30 días, debe aceptarse al iniciar sesión con ese mismo correo verificado y no genera correo automático.
+  - **Herencia de carpetas:** una concesión en una carpeta aplica a todos sus descendientes. Las concesiones directas se suman a las heredadas y prevalece el permiso más amplio; no hay denegaciones por elemento. Revocar una concesión elimina sólo su aportación: otros permisos directos o heredados pueden mantener el acceso.
+  - **Movimiento y alcance visible:** mover un recurso recalcula los permisos heredados según su nueva ubicación, pero conserva las concesiones directas. Un editor no propietario sólo mueve dentro del espacio compartido; el propietario de un recurso puede moverlo fuera. El destinatario ve la carpeta compartida y sus descendientes, nunca sus carpetas hermanas ni ancestros. Al compartir un archivo directamente, sólo ve ese archivo, sin revelar su ruta.
+  - **Eliminación de cuentas:** no habrá operación de eliminación de cuenta en el MVP y no se borrarán físicamente usuarios. Las relaciones de propiedad no deben quedar huérfanas; el diseño del esquema debe impedir borrados físicos que afecten contenido.
+- **Matriz confirmada por recurso:**
+
+  | Acción sobre el recurso | Propietario del recurso | Editor no propietario | Lector no propietario |
+  | --- | --- | --- | --- |
+  | Ver metadatos y descargar | Sí | Sí | Sí |
+  | Subir/crear dentro de la carpeta compartida | Sí | Sí | No |
+  | Renombrar | Sí | Sí | No |
+  | Mover dentro del espacio compartido | Sí | Sí | No |
+  | Mover fuera del espacio compartido | Sí | No | No |
+  | Borrar | Sí | No | No |
+  | Administrar permisos directos | Sí | No | No |
+
+  Quien crea un recurso es su propietario y se evalúa con la columna de propietario para ese recurso, aunque tenga un rol heredado distinto en su carpeta padre.
+
+- **Ejemplos confirmados:**
+  - Ana comparte una carpeta con Bruno como lector: Bruno puede abrirla y descargar sus archivos, pero no subir ni renombrar contenido.
+  - Ana comparte una carpeta con Bruno como editor: Bruno puede crear `informe.pdf` y renombrarlo o moverlo dentro de esa carpeta compartida. Bruno es propietario de `informe.pdf` y puede administrarlo, compartirlo y borrarlo; no puede borrar el archivo de Ana ni moverlo fuera de la carpeta compartida.
+  - Ana comparte una carpeta `Proyectos` con Bruno como editor. Bruno crea una subcarpeta `Borradores` y sube `informe.pdf`; él es propietario de ambos. Bruno puede renombrar, mover dentro de `Proyectos`, borrar o mover `informe.pdf` fuera de `Proyectos`. Al moverlo fuera, Ana pierde el permiso heredado; las concesiones directas sobre el archivo se mantienen.
+  - Si Ana revoca la concesión de `Proyectos`, Bruno pierde el acceso heredado a sus descendientes. Si Ana había compartido `informe.pdf` directamente con Bruno, ese acceso directo se conserva hasta revocarlo también.
+  - Si Ana mueve `Proyectos/Presupuesto.pdf` fuera de `Proyectos`, Bruno deja de verlo por herencia. Si el archivo tenía una concesión directa a Bruno, aún puede verlo desde `Compartidos conmigo`, sin ver su nueva ruta.
+  - Si Ana mueve `Proyectos` dentro de una carpeta compartida con Clara, Clara obtiene el acceso heredado según el rol de esa carpeta; Ana y Bruno conservan sus permisos directos, si los tienen.
+- **Implicación para el modelo de datos:** la propiedad se guarda por recurso; `OWNER` es una condición derivada de esa propiedad y no un rol concedible. Sólo `EDITOR` y `READER` se conceden. Los permisos efectivos se derivan de concesiones directas y de ancestros, mientras las invitaciones pendientes se resuelven por correo verificado. Al diseñar la migración, sustituir la política `onDelete: SetNull` actual de `StoredFile.owner` por una restricción que impida dejar archivos sin propietario y aplicar el mismo principio a carpetas y concesiones.
+- **Estado:** definición de producto completa; el modelo de datos de compartición queda como trabajo posterior.
+- **Columna:** Done.
 - **Prioridad:** High.
 - **Asignados:** Producto/ambos integrantes.
 - **Story points:** 2.
