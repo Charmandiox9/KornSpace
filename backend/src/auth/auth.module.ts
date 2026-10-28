@@ -9,6 +9,6 @@ import { SessionJwtGuard } from './session-jwt.guard';
   imports: [JwtModule.register({})],
   controllers: [AuthController],
   providers: [AuthService, SessionJwtGuard, SessionCookieGuard],
-  exports: [SessionJwtGuard],
+  exports: [SessionJwtGuard, JwtModule],
 })
 export class AuthModule {}

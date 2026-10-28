@@ -9,6 +9,30 @@ import { AuthService } from '../src/auth/auth.service';
 import { SessionCookieGuard } from '../src/auth/session-cookie.guard';
 import { SessionJwtGuard } from '../src/auth/session-jwt.guard';
 import { RedisService } from '../src/redis/redis.service';
+import { FilesModule } from '../src/files/files.module';
+import { PrismaModule } from '../src/prisma/prisma.module';
+import { RedisModule } from '../src/redis/redis.module';
+import { PrismaService } from '../src/prisma/prisma.service';
+
+test('FilesModule resolves the session guard and its JWT and Redis dependencies', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'test';
+  const moduleRef = await Test.createTestingModule({
+    imports: [PrismaModule, RedisModule, FilesModule],
+  })
+    .overrideProvider(PrismaService).useValue({})
+    .overrideProvider(RedisService).useValue({ get: async (): Promise<null> => null })
+    .compile();
+  const app: INestApplication = moduleRef.createNestApplication();
+
+  try {
+    await app.init();
+  } finally {
+    await app.close();
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
+});
 
 test('GET /api/auth/me rejects requests without an access JWT and active session cookie', async () => {
   const moduleRef = await Test.createTestingModule({
