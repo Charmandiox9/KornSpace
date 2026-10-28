@@ -10,7 +10,7 @@ Desde la raíz:
 
 | Comando | Uso |
 | --- | --- |
-| `pnpm dev:backend` | Inicia NestJS con recarga automática. Fuera de Docker, exporta `DATABASE_URL` y `DATABASE_URL_UNPOOLED` al proceso. |
+| `pnpm dev:backend` | Carga las variables del `.env` raíz e inicia NestJS con recarga automática. |
 | `pnpm --filter kornspace-backend build` | Genera Prisma Client y compila NestJS. |
 | `pnpm --filter kornspace-backend test:unit` | Ejecuta pruebas unitarias del servicio Prisma y validación de archivos. |
 | `pnpm --filter kornspace-backend test:e2e` | Ejecuta pruebas HTTP E2E para salud, autenticación y archivos. |
