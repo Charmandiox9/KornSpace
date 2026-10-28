@@ -28,6 +28,7 @@ Completa `.env`:
 | `FRONTEND_ORIGIN` | Origen al que vuelve el callback; local: `http://localhost`. |
 | `JWT_SECRET` | Secreto aleatorio de al menos 32 bytes para firmar JWT internos. |
 | `AUTH_COOKIE_SECURE` | `false` sólo para HTTP local; `true` en HTTPS. |
+| `VITE_API_BASE_URL` | URL del backend accesible desde el navegador en desarrollo directo; en Compose se deja vacía. |
 
 Compose todavía exige las dos URLs de Neon al interpolar la configuración base, incluso cuando el overlay las reemplaza en el backend. Complétalas también para validar el overlay.
 

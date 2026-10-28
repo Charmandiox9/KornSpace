@@ -124,8 +124,8 @@ export class AuthService {
       jwtId,
       createdAt: Date.now(),
     };
-    await this.redis.set(createSessionKey(sessionId), JSON.stringify(session), this.sessionTtlSeconds);
     const accessToken = await this.signAccessToken(user.id, sessionId, jwtId);
+    await this.redis.set(createSessionKey(sessionId), JSON.stringify(session), this.sessionTtlSeconds);
 
     return {
       sessionId,

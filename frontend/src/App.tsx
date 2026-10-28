@@ -11,6 +11,15 @@ import {
 
 const languageStorageKey = 'kornspace-language';
 const themeStorageKey = 'kornspace-theme';
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/u, '');
+
+function apiUrl(path: string): string {
+  return `${apiBaseUrl}${path}`;
+}
+
+function apiCredentials(): RequestCredentials {
+  return apiBaseUrl ? 'include' : 'same-origin';
+}
 
 interface StoredFile {
   id: string;
@@ -39,11 +48,14 @@ function isAuthenticatedUser(value: unknown): value is AuthenticatedUser {
 }
 
 async function authenticatedFetch(input: string, init?: RequestInit): Promise<Response> {
-  const response = await fetch(input, { ...init, credentials: 'same-origin' });
+  const response = await fetch(apiUrl(input), { ...init, credentials: apiCredentials() });
   if (response.status !== 401) return response;
-  const refreshResponse = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
+  const refreshResponse = await fetch(apiUrl('/api/auth/refresh'), {
+    method: 'POST',
+    credentials: apiCredentials(),
+  });
   if (!refreshResponse.ok) return response;
-  return fetch(input, { ...init, credentials: 'same-origin' });
+  return fetch(apiUrl(input), { ...init, credentials: apiCredentials() });
 }
 
 function isStoredFile(value: unknown): value is StoredFile {
@@ -62,6 +74,14 @@ function formatFileSize(sizeBytes: number): string {
   if (sizeBytes < 1024) return `${sizeBytes} B`;
   if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getProfileInitials(user: AuthenticatedUser): string {
+  const words = user.name?.trim().split(/\s+/u).filter(Boolean) ?? [];
+  if (words.length > 0) {
+    return words.slice(0, 2).map((word) => word.charAt(0)).join('').toUpperCase();
+  }
+  return user.email.charAt(0).toUpperCase();
 }
 
 function readPreference(key: string): string | null {
@@ -168,7 +188,16 @@ export default function App() {
     let cancelled = false;
     const loginError = new URLSearchParams(window.location.search).get('loginError');
     if (loginError) {
-      setNotice(copy.loginErrorGoogle);
+      const messages: Record<string, string> = {
+        google: copy.loginErrorGoogle,
+        denied: copy.loginErrorGoogle,
+        configuration: copy.loginErrorConfiguration,
+        validation: copy.loginErrorValidation,
+        provider: copy.loginErrorProvider,
+        database: copy.loginErrorDatabase,
+        server: copy.loginErrorServer,
+      };
+      setNotice(messages[loginError] ?? copy.loginErrorGoogle);
       window.history.replaceState({}, '', window.location.pathname);
     }
     void authenticatedFetch('/api/auth/me')
@@ -185,7 +214,15 @@ export default function App() {
         if (!cancelled) setAuthStatus('anonymous');
       });
     return () => { cancelled = true; };
-  }, [copy.loginErrorGoogle, copy.loginFailure]);
+  }, [
+    copy.loginErrorGoogle,
+    copy.loginErrorConfiguration,
+    copy.loginErrorValidation,
+    copy.loginErrorProvider,
+    copy.loginErrorDatabase,
+    copy.loginErrorServer,
+    copy.loginFailure,
+  ]);
 
   async function logout(): Promise<void> {
     await authenticatedFetch('/api/auth/logout', { method: 'POST' });
@@ -284,10 +321,28 @@ export default function App() {
         </section>
         <div className="sidebar-spacer" />
         <div className="sidebar-bottom">
-          {authStatus === 'authenticated' && (
-            <ActionButton ariaLabel={copy.logout} title={copy.logout} onClick={() => void logout()}>
-              <span aria-hidden="true">↪</span><span>{copy.logout}</span>
-            </ActionButton>
+          {authStatus === 'authenticated' && user && (
+            <div className="sidebar-account" aria-label={copy.account}>
+              <span className="profile-avatar" aria-hidden="true">
+                {user.pictureUrl
+                  ? <img src={user.pictureUrl} alt="" referrerPolicy="no-referrer" />
+                  : getProfileInitials(user)}
+              </span>
+              <span className="profile-details">
+                <span className="profile-name">{user.name ?? user.email}</span>
+                <span className="profile-email">{user.email}</span>
+              </span>
+              <button
+                className="logout-button"
+                type="button"
+                aria-label={copy.logout}
+                title={copy.logout}
+                onClick={() => void logout()}
+              >
+                <LogoutIcon />
+                <span className="logout-button-label">{copy.logout}</span>
+              </button>
+            </div>
           )}
           <p className="sidebar-caption">KornSpace</p>
         </div>
@@ -302,7 +357,7 @@ export default function App() {
             <h1 id="login-title">{copy.loginTitle}</h1>
             <p className="intro">{copy.loginDescription}</p>
             {notice && <p className="notice" role="alert">{notice}</p>}
-            <a className="google-login-button" href="/api/auth/google">
+            <a className="google-login-button" href={apiUrl('/api/auth/google')}>
               <GoogleIcon />
               {copy.loginWithGoogle}
             </a>
@@ -348,7 +403,7 @@ export default function App() {
                       </span>
                     </div>
                     {file.status === 'AVAILABLE' && (
-                      <a className="download-link" href={`/api/files/${encodeURIComponent(file.id)}`}>
+                      <a className="download-link" href={apiUrl(`/api/files/${encodeURIComponent(file.id)}`)}>
                         {copy.download}
                       </a>
                     )}
@@ -372,6 +427,14 @@ function GoogleIcon() {
       <path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.62-2.4l-3.23-2.52c-.9.6-2.04.96-3.39.96-2.6 0-4.8-1.76-5.59-4.12H3.07v2.6A10 10 0 0 0 12 22Z" />
       <path fill="#FBBC05" d="M6.41 13.92a6 6 0 0 1 0-3.84v-2.6H3.07a10 10 0 0 0 0 9.04l3.34-2.6Z" />
       <path fill="#EA4335" d="M12 5.96c1.47 0 2.79.5 3.82 1.5l2.86-2.86C16.96 2.99 14.7 2 12 2a10 10 0 0 0-8.93 5.48l3.34 2.6C7.2 7.72 9.4 5.96 12 5.96Z" />
+    </svg>
+  );
+}
+
+function LogoutIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M10 17l5-5-5-5m5 5H3m9-9h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6" />
     </svg>
   );
 }

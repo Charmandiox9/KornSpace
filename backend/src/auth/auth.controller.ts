@@ -2,10 +2,13 @@ import {
   Controller,
   Get,
   HttpCode,
+  Logger,
   Post,
   Query,
   Req,
   Res,
+  ServiceUnavailableException,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -40,6 +43,8 @@ class PublicUserResponseDto implements PublicUserResponse {
 @Controller('auth')
 @ApiTags('Authentication')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) {}
 
   @Get('google')
@@ -63,7 +68,9 @@ export class AuthController {
     @Res() response: Response,
   ): Promise<void> {
     if (error) {
-      response.redirect(302, `${this.authService.getFrontendOrigin()}/?loginError=google`);
+      const reason = error === 'access_denied' ? 'denied' : 'provider';
+      this.logger.warn(`Google OAuth callback returned an error (${reason}).`);
+      response.redirect(302, `${this.authService.getFrontendOrigin()}/?loginError=${reason}`);
       return;
     }
 
@@ -71,8 +78,11 @@ export class AuthController {
       const result = await this.authService.completeGoogleLogin(code, state);
       setAuthenticationCookies(response, result);
       response.redirect(302, this.authService.getFrontendOrigin());
-    } catch {
-      response.redirect(302, `${this.authService.getFrontendOrigin()}/?loginError=google`);
+    } catch (error: unknown) {
+      const reason = this.getLoginFailureReason(error);
+      const errorType = error instanceof Error ? error.constructor.name : typeof error;
+      this.logger.error(`Google OAuth callback failed (reason=${reason}, type=${errorType}).`);
+      response.redirect(302, `${this.authService.getFrontendOrigin()}/?loginError=${reason}`);
     }
   }
 
@@ -111,5 +121,13 @@ export class AuthController {
     await this.authService.logout(request.authSession as AuthSessionContext);
     clearAuthenticationCookies(response);
     response.status(204).send();
+  }
+
+  private getLoginFailureReason(error: unknown): 'configuration' | 'validation' | 'provider' | 'database' | 'server' {
+    if (error instanceof ServiceUnavailableException) return 'configuration';
+    if (error instanceof UnauthorizedException) return 'validation';
+    if (error instanceof Error && error.constructor.name === 'GaxiosError') return 'provider';
+    if (error instanceof Error && error.constructor.name.startsWith('Prisma')) return 'database';
+    return 'server';
   }
 }

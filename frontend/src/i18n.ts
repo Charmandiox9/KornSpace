@@ -40,6 +40,11 @@ export interface TranslationCatalog {
   loginChecking: string;
   loginFailure: string;
   loginErrorGoogle: string;
+  loginErrorConfiguration: string;
+  loginErrorValidation: string;
+  loginErrorProvider: string;
+  loginErrorDatabase: string;
+  loginErrorServer: string;
   logout: string;
   account: string;
 }
@@ -84,6 +89,11 @@ export const translations = {
     loginChecking: 'Verificando tu sesión…',
     loginFailure: 'No se pudo verificar la sesión. Inténtalo nuevamente.',
     loginErrorGoogle: 'Google no pudo completar el inicio de sesión. Vuelve a intentarlo.',
+    loginErrorConfiguration: 'La autenticación del servidor no está configurada. Revisa las variables OAuth y JWT en .env.',
+    loginErrorValidation: 'No se pudo validar la respuesta de Google. Comprueba que el URI de retorno coincida exactamente con el registrado.',
+    loginErrorProvider: 'Google rechazó el acceso. Revisa el cliente OAuth y el URI de retorno autorizado.',
+    loginErrorDatabase: 'No se pudo guardar tu cuenta. Aplica las migraciones pendientes con pnpm prisma:migrate:deploy.',
+    loginErrorServer: 'El servidor no pudo crear la sesión. Revisa los logs del backend y vuelve a intentarlo.',
     logout: 'Cerrar sesión',
     account: 'Cuenta',
   },
@@ -126,6 +136,11 @@ export const translations = {
     loginChecking: 'Checking your session…',
     loginFailure: 'Your session could not be verified. Please try again.',
     loginErrorGoogle: 'Google could not complete sign in. Please try again.',
+    loginErrorConfiguration: 'Server authentication is not configured. Check the OAuth and JWT variables in .env.',
+    loginErrorValidation: 'Google’s response could not be validated. Make sure the callback URI exactly matches the one registered.',
+    loginErrorProvider: 'Google rejected the sign in. Check the OAuth client and authorized callback URI.',
+    loginErrorDatabase: 'Your account could not be saved. Apply pending migrations with pnpm prisma:migrate:deploy.',
+    loginErrorServer: 'The server could not create your session. Check the backend logs and try again.',
     logout: 'Sign out',
     account: 'Account',
   },

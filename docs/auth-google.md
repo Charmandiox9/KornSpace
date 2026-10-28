@@ -7,13 +7,13 @@ KornSpace usa OAuth 2.0 con OpenID Connect. Google confirma la identidad; el bac
 1. Abre [Google Cloud Console](https://console.cloud.google.com/) y selecciona o crea un proyecto.
 2. En **Google Auth Platform**, configura la pantalla de consentimiento. Para desarrollo personal, elige el tipo de usuario adecuado y añade tu cuenta como usuario de prueba si la aplicación está en modo de pruebas.
 3. En **Clientes** (o **APIs y servicios → Credenciales**), crea un cliente OAuth de tipo **Aplicación web**.
-4. Añade este URI exacto como **URI de redireccionamiento autorizado**:
+4. Añade el callback correspondiente al modo que usarás como **URI de redireccionamiento autorizado**:
 
    ```text
-   http://localhost/api/auth/google/callback
+   http://localhost:3000/api/auth/google/callback
    ```
 
-   El URI debe coincidir carácter por carácter con `GOOGLE_OAUTH_REDIRECT_URI`, incluido el protocolo, puerto y ruta. Para otro dominio, registra el callback HTTPS de ese dominio.
+   Para Compose con Nginx usa `http://localhost/api/auth/google/callback`. El URI debe coincidir carácter por carácter con `GOOGLE_OAUTH_REDIRECT_URI`, incluido el protocolo, puerto y ruta. Para otro dominio, registra el callback HTTPS de ese dominio.
 5. Copia el **ID de cliente** y el **secreto de cliente** que muestra Google. El secreto sólo va en `.env`; nunca lo pongas en React, en el Dockerfile ni en Git.
 
 El flujo solicita sólo `openid`, `email` y `profile`. No solicita acceso a Google Drive.
@@ -29,8 +29,9 @@ Copy-Item .env.example .env
 ```dotenv
 GOOGLE_OAUTH_CLIENT_ID=tu-id-de-cliente.apps.googleusercontent.com
 GOOGLE_OAUTH_CLIENT_SECRET=tu-secreto-de-cliente
-GOOGLE_OAUTH_REDIRECT_URI=http://localhost/api/auth/google/callback
-FRONTEND_ORIGIN=http://localhost
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+FRONTEND_ORIGIN=http://localhost:5173
+VITE_API_BASE_URL=http://localhost:3000
 JWT_SECRET=secreto-aleatorio-de-al-menos-32-bytes
 JWT_ACCESS_TTL_SECONDS=900
 SESSION_TTL_SECONDS=604800
@@ -49,7 +50,7 @@ Para el Compose local se usa HTTP, por eso `AUTH_COOKIE_SECURE=false`. En cualqu
 
 ## Arrancar
 
-Después de configurar también las variables de PostgreSQL y LocalStack descritas en [puesta en marcha](getting-started.md), ejecuta:
+Para desarrollo con frontend y backend ejecutados directamente, registra en Google el callback exacto `http://localhost:3000/api/auth/google/callback`, usa `FRONTEND_ORIGIN=http://localhost:5173` y `VITE_API_BASE_URL=http://localhost:3000`. Para Compose con Nginx usa el callback `http://localhost/api/auth/google/callback`, `FRONTEND_ORIGIN=http://localhost` y deja `VITE_API_BASE_URL` vacío. Después de configurar PostgreSQL y LocalStack descritos en [puesta en marcha](getting-started.md), ejecuta:
 
 ```sh
 docker compose config --quiet

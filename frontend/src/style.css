@@ -119,6 +119,93 @@ a:focus-visible {
   margin-top: auto;
 }
 
+.sidebar-account {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-raised);
+}
+
+.profile-avatar {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-details {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.profile-name,
+.profile-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-name {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.profile-email {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.logout-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.logout-button:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.logout-button svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
 .brand {
   display: inline-flex;
   flex: 0 0 auto;
@@ -527,11 +614,42 @@ h1 {
     gap: 10px;
   }
 
+  .sidebar-account {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 8px 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .profile-details,
+  .logout-button-label {
+    display: none;
+  }
+
+  .profile-avatar {
+    width: 38px;
+    height: 38px;
+  }
+
+  .logout-button {
+    width: 46px;
+    height: 46px;
+    padding: 0;
+    border-radius: 12px;
+  }
+
   .action-button {
     width: 48px;
     min-height: 48px;
     justify-content: center;
     padding: 0;
+  }
+
+  .logout-button {
+    width: 42px;
+    height: 42px;
   }
 
   .page {
