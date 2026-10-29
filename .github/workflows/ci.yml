@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.31.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm --filter kornspace-frontend build
+
+      - name: Build backend
+        run: pnpm --filter kornspace-backend build
+
+      - name: Run workspace tests
+        run: pnpm test
+
+  infrastructure:
+    name: Validate infrastructure
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://kornspace:kornspace@localhost:5432/kornspace
+      DATABASE_URL_UNPOOLED: postgresql://kornspace:kornspace@localhost:5432/kornspace
+      JWT_SECRET: ci-only-secret
+      POSTGRES_DATABASE_URL: postgresql://kornspace:kornspace@localhost:5432/kornspace
+      POSTGRES_PASSWORD: ci-only-password
+      GOOGLE_OAUTH_CLIENT_ID: ci-client-id
+      GOOGLE_OAUTH_CLIENT_SECRET: ci-client-secret
+      GOOGLE_OAUTH_REDIRECT_URI: http://localhost/api/auth/google/callback
+      FRONTEND_ORIGIN: http://localhost
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose configuration
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive infra/terraform/localstack
+
+      - name: Initialize Terraform
+        run: terraform -chdir=infra/terraform/localstack init -backend=false -input=false
+
+      - name: Validate Terraform configuration
+        run: terraform -chdir=infra/terraform/localstack validate
+
+  dependency-audit:
+    name: Audit dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.31.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
+
+  codeql:
+    name: CodeQL security analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - name: Analyze code
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+
+  build-images:
+    name: Build Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          target: development
+          tags: kornspace-frontend:ci
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Build backend production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: production
+          tags: kornspace-backend:ci
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend

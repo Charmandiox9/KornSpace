@@ -27,6 +27,7 @@ export interface PublicUserResponse {
   id: string;
   email: string;
   name: string | null;
+  username: string | null;
   pictureUrl: string | null;
 }
 

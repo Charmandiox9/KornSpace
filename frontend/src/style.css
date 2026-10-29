@@ -70,6 +70,109 @@ a:focus-visible {
     linear-gradient(145deg, var(--page), var(--surface-raised));
 }
 
+.app-shell-public {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell-public .page {
+  flex: 1;
+  width: 100%;
+  min-height: 100vh;
+}
+
+.public-page {
+  display: grid;
+  width: min(100%, 1040px);
+  min-height: 100%;
+  grid-template-rows: auto 1fr;
+  justify-self: center;
+  justify-items: center;
+  gap: clamp(44px, 9vh, 92px);
+  padding-top: clamp(8px, 2vh, 20px);
+}
+
+.public-header {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.public-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.public-controls .action-button {
+  width: auto;
+}
+
+.username-card {
+  width: min(100%, 520px);
+  justify-self: center;
+  align-self: center;
+}
+
+.username-form {
+  display: grid;
+  width: min(100%, 360px);
+  gap: 10px;
+  margin-top: 25px;
+  text-align: left;
+}
+
+.username-form label {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.username-input-wrap {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  color: var(--muted);
+}
+
+.username-input-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.username-input-wrap input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.username-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.username-submit {
+  width: 100%;
+  margin-top: 9px;
+  background: linear-gradient(120deg, var(--accent), var(--accent-secondary));
+  color: white;
+  cursor: pointer;
+}
+
+.username-submit:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .sidebar {
   display: flex;
   min-height: 100vh;
@@ -119,16 +222,131 @@ a:focus-visible {
   margin-top: auto;
 }
 
-.sidebar-account {
-  display: grid;
+.account-menu {
+  position: relative;
   min-width: 0;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
+}
+
+.sidebar-account-trigger {
+  display: grid;
+  min-height: 64px;
+  min-width: 0;
+  grid-template-columns: 40px minmax(0, 1fr) 16px;
   align-items: center;
   gap: 10px;
-  padding: 12px 8px;
+  padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface-raised);
+  cursor: pointer;
+  list-style: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.sidebar-account-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.sidebar-account-trigger:hover,
+.account-menu[open] .sidebar-account-trigger {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.sidebar-account-trigger:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.account-menu-chevron {
+  color: var(--muted);
+  font-size: 18px;
+  text-align: center;
+  transition: transform 160ms ease;
+}
+
+.account-menu[open] .account-menu-chevron {
+  transform: rotate(180deg);
+}
+
+.account-menu-panel {
+  position: absolute;
+  z-index: 5;
+  right: auto;
+  bottom: calc(100% + 10px);
+  left: 0;
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation: account-menu-enter 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes account-menu-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.account-menu-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.account-details-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.account-details-list > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.account-details-list dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.account-details-list dd {
+  overflow: hidden;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu-divider {
+  height: 1px;
+  background: var(--line);
+}
+
+.account-menu-actions {
+  display: grid;
+  gap: 7px;
+}
+
+.account-menu-actions .action-button {
+  min-height: 40px;
+  font-size: 12px;
+}
+
+.account-menu-logout {
+  width: 100%;
+  min-height: 40px;
+  justify-content: flex-start;
+  padding-inline: 13px;
+  color: var(--ink);
 }
 
 .profile-avatar {
@@ -322,6 +540,7 @@ a:focus-visible {
   background: var(--surface);
   box-shadow: var(--shadow);
   text-align: center;
+  justify-self: center;
 }
 
 .login-card::before {
@@ -590,6 +809,24 @@ h1 {
     grid-template-columns: 78px minmax(0, 1fr);
   }
 
+  .app-shell-public {
+    display: flex;
+  }
+
+  .public-page {
+    gap: 48px;
+  }
+
+  .public-controls .action-button > span:last-child {
+    display: none;
+  }
+
+  .public-controls .action-button {
+    width: 48px;
+    justify-content: center;
+    padding: 0;
+  }
+
   .sidebar {
     align-items: center;
     gap: 28px;
@@ -614,17 +851,17 @@ h1 {
     gap: 10px;
   }
 
-  .sidebar-account {
+  .sidebar-account-trigger {
     display: flex;
-    flex-direction: column;
-    gap: 9px;
-    padding: 8px 0;
+    min-height: 54px;
+    justify-content: center;
+    padding: 7px 0;
     border: 0;
     background: transparent;
   }
 
   .profile-details,
-  .logout-button-label {
+  .account-menu-chevron {
     display: none;
   }
 
@@ -633,11 +870,8 @@ h1 {
     height: 38px;
   }
 
-  .logout-button {
-    width: 46px;
-    height: 46px;
-    padding: 0;
-    border-radius: 12px;
+  .account-menu-panel {
+    width: 100%;
   }
 
   .action-button {
@@ -645,11 +879,6 @@ h1 {
     min-height: 48px;
     justify-content: center;
     padding: 0;
-  }
-
-  .logout-button {
-    width: 42px;
-    height: 42px;
   }
 
   .page {

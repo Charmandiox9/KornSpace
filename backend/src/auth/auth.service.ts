@@ -1,5 +1,6 @@
 import {
   Injectable,
+  ConflictException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -138,7 +139,7 @@ export class AuthService {
   async getCurrentUser(userId: string): Promise<PublicUserResponse> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, pictureUrl: true },
+      select: { id: true, email: true, name: true, username: true, pictureUrl: true },
     });
     if (!user) {
       throw new UnauthorizedException('La cuenta ya no está disponible.');
@@ -146,7 +147,27 @@ export class AuthService {
     return user;
   }
 
+  async setUsername(userId: string, username: string): Promise<PublicUserResponse> {
+    const normalizedUsername = username.trim().toLowerCase();
+    const existingUser = await this.prisma.user.findUnique({
+      where: { username: normalizedUsername },
+      select: { id: true },
+    });
+    if (existingUser && existingUser.id !== userId) {
+      throw new ConflictException('Ese nombre de usuario ya está en uso.');
+    }
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { username: normalizedUsername },
+      select: { id: true, email: true, name: true, username: true, pictureUrl: true },
+    });
+  }
+
   async refreshAccessToken(session: AuthSessionContext): Promise<GoogleLoginResult> {
+    const sessionRefreshed = await this.redis.expire(session.sessionKey, this.sessionTtlSeconds);
+    if (!sessionRefreshed) {
+      throw new UnauthorizedException('La sesión expiró. Inicia sesión nuevamente.');
+    }
     const accessToken = await this.signAccessToken(session.userId, session.sessionId, session.jwtId);
     return {
       sessionId: session.sessionId,
