@@ -12,5 +12,13 @@
     "prisma:migrate:status": "pnpm --filter kornspace-backend prisma:migrate:status",
     "build": "pnpm --recursive --if-present build",
     "test": "pnpm --recursive --if-present test"
+  },
+  "pnpm": {
+    "overrides": {
+      "deepmerge-ts": "8.0.2",
+      "@graphql-tools/utils": "12.1.0",
+      "multer": "2.5.0",
+      "js-yaml": "5.4.1"
+    }
   }
 }
