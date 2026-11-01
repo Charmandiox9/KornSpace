@@ -3,7 +3,6 @@ import {
   Controller,
   Get,
   Headers,
-  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -12,7 +11,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { ApiAcceptedResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiParam, ApiProperty, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiAcceptedResponse, ApiBadRequestResponse, ApiCreatedResponse, ApiHeader, ApiOkResponse, ApiOperation, ApiParam, ApiPayloadTooLargeResponse, ApiProperty, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { FilesService } from './files.service';
 import type { StoredFileResponse, UploadFileResult } from './file.types';
@@ -51,18 +50,25 @@ export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Lista los archivos del prototipo local' })
+  @ApiOperation({ summary: 'Lista los archivos del usuario autenticado' })
   @ApiOkResponse({ type: FileResponseDto, isArray: true })
+  @ApiUnauthorizedResponse({ description: 'La sesión está ausente o no es válida.' })
+  @ApiServiceUnavailableResponse({ description: 'No fue posible consultar PostgreSQL.' })
   list(@CurrentUser() user: AuthenticatedUserContext): Promise<StoredFileResponse[]> {
     return this.filesService.list(user.userId);
   }
 
   @Post()
-  @HttpCode(200)
   @ApiOperation({ summary: 'Sube un archivo a S3 y encola los mayores a 10 MiB' })
-  @ApiQuery({ name: 'name', required: true, description: 'Nombre original del archivo.' })
+  @ApiQuery({ name: 'name', required: true, description: 'Nombre de 1 a 255 caracteres, sin caracteres de control.' })
+  @ApiHeader({ name: 'Content-Type', required: true, description: 'Tipo MIME válido del archivo.' })
+  @ApiHeader({ name: 'Content-Length', required: true, description: 'Tamaño decimal positivo, igual a los bytes transmitidos.' })
   @ApiCreatedResponse({ type: UploadResponseDto, description: 'Archivo pequeño guardado y disponible.' })
   @ApiAcceptedResponse({ type: UploadResponseDto, description: 'Archivo grande guardado y en procesamiento.' })
+  @ApiBadRequestResponse({ description: 'Falta nombre, Content-Type o Content-Length; el archivo está vacío o sus metadatos no son válidos.' })
+  @ApiPayloadTooLargeResponse({ description: 'El archivo excede el máximo configurado de 100 MiB.' })
+  @ApiServiceUnavailableResponse({ description: 'Falló el almacenamiento S3, el guardado de metadatos en PostgreSQL o el encolado.' })
+  @ApiUnauthorizedResponse({ description: 'La sesión está ausente o no es válida.' })
   async upload(
     @Req() request: Request,
     @Query('name') name: string | undefined,
@@ -71,17 +77,23 @@ export class FilesController {
     @Res({ passthrough: true }) response: Response,
     @CurrentUser() user: AuthenticatedUserContext,
   ): Promise<UploadFileResult> {
+    if (contentLength === undefined || !/^\d+$/u.test(contentLength)) {
+      throw new BadRequestException('La solicitud debe incluir Content-Length decimal válido.');
+    }
     const sizeBytes = Number(contentLength);
-    if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
-      throw new BadRequestException('La solicitud debe incluir Content-Length válido.');
+    if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
+      throw new BadRequestException('La solicitud debe incluir Content-Length válido para un archivo no vacío.');
     }
     if (!name) {
       throw new BadRequestException('El parámetro name es obligatorio.');
     }
+    if (!contentType) {
+      throw new BadRequestException('La solicitud debe incluir Content-Type válido.');
+    }
     const result = await this.filesService.upload(
       request,
       name,
-      contentType ?? 'application/octet-stream',
+      contentType,
       sizeBytes,
       user.userId,
     );

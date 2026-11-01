@@ -25,15 +25,15 @@ Desde la raíz:
 - `POST /api/auth/refresh`: renueva el JWT si la sesión Redis sigue activa.
 - `POST /api/auth/logout`: revoca la sesión actual.
 - `GET /api/docs`: documentación Swagger.
-- `/graphql`: GraphQL; GraphiQL está habilitado en desarrollo. Actualmente incluye `health`.
-- `GET /api/files`: lista metadatos.
-- `POST /api/files?name=<nombre>`: sube un binario; requiere `Content-Type` y `Content-Length`.
+- `/graphql`: endpoint canónico GraphQL; GraphiQL está habilitado en desarrollo. Actualmente incluye `health`. Nginx también acepta `/api/graphql` como alias compatible.
+- `GET /api/files`: lista sólo los metadatos cuyos archivos pertenecen al usuario autenticado; los registros sin propietario no se incluyen.
+- `POST /api/files?name=<nombre>`: transmite el binario directamente a S3 compatible; requiere `Content-Type` MIME válido y `Content-Length` entero positivo. El nombre debe tener entre 1 y 255 caracteres y no contener caracteres de control. No se aceptan archivos vacíos; el tamaño declarado y recibido debe coincidir.
 - `GET /api/files/:id`: descarga un archivo disponible.
 - `GET /api/files/:id/status`: consulta estado de procesamiento.
 
-Todas las rutas de archivos requieren JWT y sesión activa; los archivos se consultan por propietario. La ruta de salud y el inicio OAuth son públicos.
+Todas las rutas de archivos requieren JWT y sesión activa; el propietario siempre se toma de la identidad autenticada, nunca del cuerpo o la URL. Las respuestas tipadas de carga reflejan el estado: hasta 10 MiB queda `AVAILABLE` con checksum calculado; sobre 10 MiB queda `PROCESSING` sin checksum hasta que el worker lo procese. La ruta de salud y el inicio OAuth son públicos.
 
-El tamaño máximo de archivo es 100 MiB. Nginx está configurado para aceptar ese tamaño.
+El tamaño máximo predeterminado de archivo es 100 MiB (`FILE_MAX_SIZE_BYTES` puede ajustarlo; al cambiarlo también debe ajustarse el límite de Nginx). Al excederlo se devuelve HTTP 413. La solicitud inválida o vacía devuelve HTTP 400; una sesión ausente o inválida devuelve HTTP 401. Si S3, PostgreSQL o SQS no están disponibles, la API devuelve HTTP 503 y trata de eliminar el objeto/registro ya creado para evitar residuos. Nginx está configurado para aceptar hasta 100 MiB.
 
 ## Archivos grandes
 

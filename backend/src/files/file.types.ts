@@ -1,3 +1,6 @@
+import type { S3Client } from '@aws-sdk/client-s3';
+import type { SQSClient } from '@aws-sdk/client-sqs';
+
 export type StoredFileStatus = 'PROCESSING' | 'AVAILABLE' | 'FAILED';
 
 export interface StoredFileResponse {
@@ -19,3 +22,10 @@ export interface UploadFileResult {
   file: StoredFileResponse;
   asynchronous: boolean;
 }
+
+export interface FileStorageClients {
+  s3: S3Client;
+  sqs: SQSClient;
+}
+
+export const FILE_STORAGE_CLIENTS = Symbol('FILE_STORAGE_CLIENTS');

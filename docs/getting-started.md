@@ -42,7 +42,7 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Web: <http://localhost>. Salud: <http://localhost/api/health>. Swagger: <http://localhost/api/docs>. GraphQL: <http://localhost/graphql>.
+Web: <http://localhost>. Salud: <http://localhost/api/health>. Swagger: <http://localhost/api/docs>. GraphQL: <http://localhost/graphql> (también disponible en <http://localhost/api/graphql> por Nginx).
 
 ```sh
 docker compose logs -f
