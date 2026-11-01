@@ -1,6 +1,8 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
+  Optional,
   NotFoundException,
   PayloadTooLargeException,
   ServiceUnavailableException,
@@ -10,7 +12,7 @@ import { Transform, type Readable } from 'node:stream';
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { PrismaService } from '../prisma/prisma.service';
-import type { ProcessFileMessage, StoredFileResponse, UploadFileResult } from './file.types';
+import { FILE_STORAGE_CLIENTS, type FileStorageClients, type ProcessFileMessage, type StoredFileResponse, type UploadFileResult } from './file.types';
 
 const defaultAsyncThresholdBytes = 10 * 1024 * 1024;
 const defaultMaxFileSizeBytes = 100 * 1024 * 1024;
@@ -29,13 +31,19 @@ interface FileStreamMetadata {
   checksum: () => string;
 }
 
+class InvalidFileBodyError extends Error {}
+class OversizedFileBodyError extends Error {}
+
 @Injectable()
 export class FilesService {
   private readonly configuration: FileStorageConfiguration;
   private readonly s3: S3Client;
   private readonly sqs: SQSClient;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(FILE_STORAGE_CLIENTS) clients?: FileStorageClients,
+  ) {
     this.configuration = {
       endpoint: process.env.S3_ENDPOINT ?? 'http://localhost:4566',
       bucket: process.env.S3_BUCKET ?? 'kornspace-files',
@@ -53,16 +61,20 @@ export class FilesService {
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'test',
       },
     };
-    this.s3 = new S3Client(clientConfiguration);
-    this.sqs = new SQSClient({
+    this.s3 = clients?.s3 ?? new S3Client(clientConfiguration);
+    this.sqs = clients?.sqs ?? new SQSClient({
       ...clientConfiguration,
       endpoint: process.env.SQS_ENDPOINT ?? this.configuration.endpoint,
     });
   }
 
   async list(ownerId: string): Promise<StoredFileResponse[]> {
-    const files = await this.prisma.storedFile.findMany({ where: { ownerId }, orderBy: { createdAt: 'desc' } });
-    return files.map((file) => this.toResponse(file));
+    try {
+      const files = await this.prisma.storedFile.findMany({ where: { ownerId }, orderBy: { createdAt: 'desc' } });
+      return files.map((file) => this.toResponse(file));
+    } catch {
+      throw new ServiceUnavailableException('No fue posible consultar los archivos.');
+    }
   }
 
   async upload(
@@ -72,10 +84,10 @@ export class FilesService {
     sizeBytes: number,
     ownerId: string,
   ): Promise<UploadFileResult> {
-    this.validateUpload(name, contentType, sizeBytes);
+    const normalizedName = this.validateUpload(name, contentType, sizeBytes);
     const id = randomUUID();
     const s3Key = `files/${id}`;
-    const streamMetadata = this.createHashingStream(source);
+    const streamMetadata = this.createHashingStream(source, sizeBytes);
 
     try {
       await this.s3.send(new PutObjectCommand({
@@ -83,15 +95,27 @@ export class FilesService {
         Key: s3Key,
         Body: streamMetadata.stream,
         ContentLength: sizeBytes,
-        ContentType: contentType,
+        ContentType: contentType.trim(),
       }));
+    } catch (error: unknown) {
+      await this.deleteObjectQuietly(s3Key);
+      if (error instanceof InvalidFileBodyError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof OversizedFileBodyError) {
+        throw new PayloadTooLargeException(`El tamaño máximo permitido es ${this.configuration.maxFileSizeBytes} bytes.`);
+      }
+      throw new ServiceUnavailableException('No fue posible guardar el archivo en el almacenamiento.');
+    }
 
-      const asynchronous = sizeBytes > this.configuration.asyncThresholdBytes;
-      const file = await this.prisma.storedFile.create({
+    const asynchronous = sizeBytes > this.configuration.asyncThresholdBytes;
+    let file: Awaited<ReturnType<PrismaService['storedFile']['create']>>;
+    try {
+      file = await this.prisma.storedFile.create({
         data: {
           id,
-          name,
-          contentType,
+          name: normalizedName,
+          contentType: contentType.trim(),
           sizeBytes: BigInt(sizeBytes),
           s3Key,
           ownerId,
@@ -99,28 +123,26 @@ export class FilesService {
           status: asynchronous ? 'PROCESSING' : 'AVAILABLE',
         },
       });
-
-      if (asynchronous) {
-        const message: ProcessFileMessage = { fileId: id, s3Key };
-        try {
-          await this.sqs.send(new SendMessageCommand({
-            QueueUrl: this.configuration.queueUrl,
-            MessageBody: JSON.stringify(message),
-          }));
-        } catch {
-          await this.prisma.storedFile.delete({ where: { id } });
-          await this.s3.send(new DeleteObjectCommand({ Bucket: this.configuration.bucket, Key: s3Key }));
-          throw new ServiceUnavailableException('No fue posible programar el procesamiento del archivo.');
-        }
-      }
-
-      return { file: this.toResponse(file), asynchronous };
-    } catch (error: unknown) {
-      if (error instanceof BadRequestException || error instanceof PayloadTooLargeException || error instanceof ServiceUnavailableException) {
-        throw error;
-      }
-      throw new ServiceUnavailableException('No fue posible guardar el archivo en el almacenamiento.');
+    } catch {
+      await this.deleteObjectQuietly(s3Key);
+      throw new ServiceUnavailableException('El archivo llegó al almacenamiento, pero no fue posible guardar sus metadatos.');
     }
+
+    if (asynchronous) {
+      const message: ProcessFileMessage = { fileId: id, s3Key };
+      try {
+        await this.sqs.send(new SendMessageCommand({
+          QueueUrl: this.configuration.queueUrl,
+          MessageBody: JSON.stringify(message),
+        }));
+      } catch {
+        await this.prisma.storedFile.delete({ where: { id } }).catch(() => undefined);
+        await this.deleteObjectQuietly(s3Key);
+        throw new ServiceUnavailableException('No fue posible programar el procesamiento del archivo.');
+      }
+    }
+
+    return { file: this.toResponse(file), asynchronous };
   }
 
   async getDownload(id: string, ownerId: string): Promise<{ file: StoredFileResponse; body: Readable }> {
@@ -150,32 +172,58 @@ export class FilesService {
     return this.toResponse(file);
   }
 
-  private validateUpload(name: string, contentType: string, sizeBytes: number): void {
+  private validateUpload(name: string, contentType: string, sizeBytes: number): string {
     const normalizedName = name.trim();
     if (!normalizedName || normalizedName.length > 255 || /[\u0000-\u001f]/u.test(normalizedName)) {
       throw new BadRequestException('El nombre del archivo no es válido.');
     }
-    if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
-      throw new BadRequestException('El archivo debe indicar un tamaño válido.');
+    if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
+      throw new BadRequestException('El archivo debe contener al menos un byte y declarar un tamaño válido.');
     }
     if (sizeBytes > this.configuration.maxFileSizeBytes) {
       throw new PayloadTooLargeException(`El tamaño máximo permitido es ${this.configuration.maxFileSizeBytes} bytes.`);
     }
-    if (!contentType || contentType.length > 255 || /[\r\n]/u.test(contentType)) {
+    const normalizedContentType = contentType.trim();
+    const mimeTypePattern = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+(?:\s*;\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+=(?:[!#$%&'*+.^_`|~0-9A-Za-z-]+|"[^"\r\n]*"))*$/u;
+    if (!normalizedContentType || normalizedContentType.length > 255 || !mimeTypePattern.test(normalizedContentType)) {
       throw new BadRequestException('El tipo de contenido no es válido.');
     }
+    return normalizedName;
   }
 
-  private createHashingStream(source: Readable): FileStreamMetadata {
+  private createHashingStream(source: Readable, expectedSizeBytes: number): FileStreamMetadata {
     const hash = createHash('sha256');
+    let sizeBytes = 0;
+    const maxFileSizeBytes = this.configuration.maxFileSizeBytes;
     const stream = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
+        sizeBytes += chunk.byteLength;
+        if (sizeBytes > maxFileSizeBytes) {
+          callback(new OversizedFileBodyError());
+          return;
+        }
         hash.update(chunk);
         callback(null, chunk);
       },
+      flush: (callback) => {
+        if (sizeBytes === 0) {
+          callback(new InvalidFileBodyError('No se permiten archivos vacíos.'));
+          return;
+        }
+        if (sizeBytes !== expectedSizeBytes) {
+          callback(new InvalidFileBodyError('El tamaño recibido no coincide con Content-Length.'));
+          return;
+        }
+        callback();
+      },
     });
+    source.once('error', (error: Error) => stream.destroy(error));
     source.pipe(stream);
     return { stream, checksum: () => hash.digest('hex') };
+  }
+
+  private async deleteObjectQuietly(key: string): Promise<void> {
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.configuration.bucket, Key: key })).catch(() => undefined);
   }
 
   private toResponse(file: {
