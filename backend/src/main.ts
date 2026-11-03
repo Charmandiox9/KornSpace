@@ -23,7 +23,7 @@ async function bootstrap() {
     .filter((origin) => origin.length > 0);
   const developmentOrigins =
     environment === 'development'
-      ? ['http://localhost:5173', 'http://127.0.0.1:5173']
+      ? ['http://localhost:3001', 'http://127.0.0.1:3001']
       : [];
   const allowedOrigins = new Set([...configuredOrigins, ...developmentOrigins]);
   const validateCorsOrigin: CustomOrigin = (origin, callback) => {

@@ -1,5 +1,6 @@
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { SQSClient } from '@aws-sdk/client-sqs';
+import type { UploadPhase } from './upload-registry.service';
 
 export type StoredFileStatus = 'PROCESSING' | 'AVAILABLE' | 'FAILED';
 
@@ -11,6 +12,7 @@ export interface StoredFileResponse {
   status: StoredFileStatus;
   checksum: string | null;
   createdAt: string;
+  deletedAt: string | null;
 }
 
 export interface ProcessFileMessage {
@@ -21,6 +23,18 @@ export interface ProcessFileMessage {
 export interface UploadFileResult {
   file: StoredFileResponse;
   asynchronous: boolean;
+}
+
+export interface UploadOperationResponse {
+  phase: UploadPhase;
+  file: StoredFileResponse | null;
+  asynchronous: boolean;
+}
+
+export interface UploadLifecycle {
+  fileId?: string;
+  signal?: AbortSignal;
+  beforeCommit?: () => Promise<void>;
 }
 
 export interface FileStorageClients {
