@@ -19,6 +19,9 @@
       "@graphql-tools/utils": "12.1.0",
       "multer": "2.5.0",
       "js-yaml": "5.4.1"
+    },
+    "patchedDependencies": {
+      "sileo@0.1.6": "patches/sileo@0.1.6.patch"
     }
   }
 }

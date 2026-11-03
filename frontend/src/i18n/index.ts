@@ -1,74 +1,10 @@
-export type Language = 'es' | 'en';
-export type Theme = 'light' | 'dark';
-
-export interface TranslationCatalog {
-  pageTitle: string;
-  loginMetaTitle: string;
-  onboardingMetaTitle: string;
-  socialLocale: string;
-  appearanceControls: string;
-  languageEnglish: string;
-  languageSpanish: string;
-  switchLanguageToEnglish: string;
-  switchLanguageToSpanish: string;
-  switchThemeToDark: string;
-  switchThemeToLight: string;
-  darkTheme: string;
-  lightTheme: string;
-  eyebrow: string;
-  headline: string;
-  description: string;
-  status: string;
-  footer: string;
-  uploadFile: string;
-  filesHeading: string;
-  fileName: string;
-  fileSize: string;
-  fileStatus: string;
-  fileReady: string;
-  fileProcessing: string;
-  fileFailed: string;
-  download: string;
-  emptyFiles: string;
-  uploading: string;
-  uploadSuccess: string;
-  uploadQueued: string;
-  uploadError: string;
-  loadError: string;
-  fileLimit: string;
-  unknownError: string;
-  loginTitle: string;
-  loginDescription: string;
-  loginWithGoogle: string;
-  loginChecking: string;
-  loginFailure: string;
-  loginErrorGoogle: string;
-  loginErrorConfiguration: string;
-  loginErrorValidation: string;
-  loginErrorProvider: string;
-  loginErrorDatabase: string;
-  loginErrorServer: string;
-  logout: string;
-  account: string;
-  usernameTitle: string;
-  usernameDescription: string;
-  usernameLabel: string;
-  usernamePlaceholder: string;
-  usernameHint: string;
-  usernameContinue: string;
-  usernameSaving: string;
-  usernameTaken: string;
-  usernameSaveError: string;
-  accountMenu: string;
-  accountDetails: string;
-  profileName: string;
-  profileNameUnavailable: string;
-  emailLabel: string;
-}
+import type { Language, Theme, TranslationCatalog } from '../types';
 
 export const translations = {
   es: {
     pageTitle: 'KornSpace — Tus archivos, en su lugar',
+    myDrive: 'Mi Unidad',
+    workspaceNavigation: 'Navegación del espacio',
     loginMetaTitle: 'KornSpace — Inicio de sesión seguro',
     onboardingMetaTitle: 'KornSpace — Configura tu cuenta',
     socialLocale: 'es_CL',
@@ -88,6 +24,23 @@ export const translations = {
     footer: 'Almacenamiento privado para tus cosas.',
     uploadFile: 'Subir archivo',
     filesHeading: 'Tus archivos',
+    emptyTrash: 'La papelera está vacía.',
+    deleteFile: 'Eliminar',
+    trashHeading: 'Papelera',
+    moveToTrash: 'Enviar a papelera',
+    deletePermanently: 'Eliminar definitivamente',
+    restoreFile: 'Restaurar',
+    trashExpiry: 'Se eliminará definitivamente al cumplir 10 días en la papelera.',
+    deleteChoiceTitle: '¿Qué quieres hacer con este archivo?',
+    trashChoice: 'Enviar a la papelera',
+    permanentChoice: 'Eliminar para siempre',
+    cancel: 'Cancelar',
+    confirmPermanentTitle: '¿Eliminar definitivamente?',
+    confirmPermanentDescription: 'Esta acción no se puede deshacer.',
+    fileMovedToTrash: 'Archivo enviado a la papelera.',
+    filePermanentlyDeleted: 'Archivo eliminado definitivamente.',
+    fileRestored: 'Archivo restaurado.',
+    fileActionFailed: 'No se pudo completar la acción. Inténtalo de nuevo.',
     fileName: 'Nombre',
     fileSize: 'Tamaño',
     fileStatus: 'Estado',
@@ -115,6 +68,7 @@ export const translations = {
     loginErrorDatabase: 'No se pudo guardar tu cuenta. Aplica las migraciones pendientes con pnpm prisma:migrate:deploy.',
     loginErrorServer: 'El servidor no pudo crear la sesión. Revisa los logs del backend y vuelve a intentarlo.',
     logout: 'Cerrar sesión',
+    logoutFailure: 'No se pudo cerrar la sesión. Inténtalo de nuevo.',
     account: 'Cuenta',
     usernameTitle: 'Elige tu nombre de usuario',
     usernameDescription: 'Este nombre identificará tu espacio. Podrás continuar cuando lo hayas elegido.',
@@ -130,9 +84,43 @@ export const translations = {
     profileName: 'Nombre',
     profileNameUnavailable: 'No indicado',
     emailLabel: 'Correo electrónico',
+    notFoundCode: '404',
+    notFoundTitle: 'No encontramos esta página',
+    notFoundDescription: 'La dirección no existe o la página ya no está disponible. Puedes volver a la página anterior o ir al inicio.',
+    returnHome: 'Volver al inicio',
+    goBack: 'Volver atrás',
+    uploadZone: 'Zona de carga de archivos',
+    selectFiles: 'Seleccionar archivos',
+    dropFilesHere: 'Arrastra tus archivos aquí o selecciónalos con el botón.',
+    dropFilesNow: 'Suelta los archivos para comenzar la carga.',
+    uploadMultipleHint: 'Puedes elegir varios archivos. Máximo 100 MiB por archivo; no se admiten archivos vacíos.',
+    uploadsHeading: 'Estado de las cargas',
+    uploadWaiting: 'En espera…',
+    uploadInvalid: 'Archivo no válido.',
+    uploadEmpty: 'El archivo está vacío y no se puede subir.',
+    uploadInvalidName: 'El nombre del archivo no es válido. Usa hasta 255 caracteres sin caracteres de control.',
+    uploadProgress: 'Progreso del envío',
+    uploadNotifications: 'Notificaciones de carga',
+    uploadToastUploading: 'Subiendo archivo',
+    uploadToastConfirming: 'Confirmando subida',
+    uploadToastCompleted: 'Subida completada',
+    uploadToastCancelled: 'Carga cancelada',
+    uploadToastCancelling: 'Cancelando carga',
+    uploadToastUnconfirmed: 'Resultado pendiente',
+    closeUploadNotification: 'Cerrar notificación',
+    uploadConfirming: 'Archivo enviado. Confirmando guardado…',
+    uploadCancelling: 'Cancelación solicitada. Esperando confirmación de limpieza…',
+    uploadCancelled: 'Carga cancelada. No se guardó el archivo.',
+    uploadCancellationUnconfirmed: 'No se pudo confirmar el resultado. Comprueba la cancelación antes de reintentar la carga.',
+    uploadCompletionWon: 'La confirmación ya había comenzado. Se conservó el archivo completo.',
+    uploadCheckCancellation: 'Comprobar cancelación',
+    cancelUpload: 'Cancelar carga',
+    retryUpload: 'Reintentar carga',
   },
   en: {
     pageTitle: 'KornSpace — Your files, in their place',
+    myDrive: 'My Drive',
+    workspaceNavigation: 'Workspace navigation',
     loginMetaTitle: 'KornSpace — Secure sign in',
     onboardingMetaTitle: 'KornSpace — Set up your account',
     socialLocale: 'en_US',
@@ -152,6 +140,23 @@ export const translations = {
     footer: 'Private storage for your things.',
     uploadFile: 'Upload file',
     filesHeading: 'Your files',
+    emptyTrash: 'Your trash is empty.',
+    deleteFile: 'Delete',
+    trashHeading: 'Trash',
+    moveToTrash: 'Move to trash',
+    deletePermanently: 'Delete permanently',
+    restoreFile: 'Restore',
+    trashExpiry: 'It will be permanently deleted after 10 days in the trash.',
+    deleteChoiceTitle: 'What would you like to do with this file?',
+    trashChoice: 'Move to trash',
+    permanentChoice: 'Delete forever',
+    cancel: 'Cancel',
+    confirmPermanentTitle: 'Delete permanently?',
+    confirmPermanentDescription: 'This action cannot be undone.',
+    fileMovedToTrash: 'File moved to trash.',
+    filePermanentlyDeleted: 'File permanently deleted.',
+    fileRestored: 'File restored.',
+    fileActionFailed: 'The action could not be completed. Please try again.',
     fileName: 'Name',
     fileSize: 'Size',
     fileStatus: 'Status',
@@ -179,6 +184,7 @@ export const translations = {
     loginErrorDatabase: 'Your account could not be saved. Apply pending migrations with pnpm prisma:migrate:deploy.',
     loginErrorServer: 'The server could not create your session. Check the backend logs and try again.',
     logout: 'Sign out',
+    logoutFailure: 'Could not sign out. Please try again.',
     account: 'Account',
     usernameTitle: 'Choose your username',
     usernameDescription: 'This name identifies your space. Choose one to continue.',
@@ -194,6 +200,38 @@ export const translations = {
     profileName: 'Name',
     profileNameUnavailable: 'Not provided',
     emailLabel: 'Email address',
+    notFoundCode: '404',
+    notFoundTitle: 'We could not find this page',
+    notFoundDescription: 'This address does not exist or the page is no longer available. You can return to the previous page or go home.',
+    returnHome: 'Return home',
+    goBack: 'Go back',
+    uploadZone: 'File upload area',
+    selectFiles: 'Select files',
+    dropFilesHere: 'Drag your files here or select them using the button.',
+    dropFilesNow: 'Drop the files to start uploading.',
+    uploadMultipleHint: 'You can select multiple files. Maximum 100 MiB per file; empty files are not supported.',
+    uploadsHeading: 'Upload status',
+    uploadWaiting: 'Waiting…',
+    uploadInvalid: 'Invalid file.',
+    uploadEmpty: 'This file is empty and cannot be uploaded.',
+    uploadInvalidName: 'Invalid filename. Use up to 255 characters without control characters.',
+    uploadProgress: 'Upload progress',
+    uploadNotifications: 'Upload notifications',
+    uploadToastUploading: 'Uploading file',
+    uploadToastConfirming: 'Confirming upload',
+    uploadToastCompleted: 'Upload complete',
+    uploadToastCancelled: 'Upload cancelled',
+    uploadToastCancelling: 'Cancelling upload',
+    uploadToastUnconfirmed: 'Result pending',
+    closeUploadNotification: 'Dismiss notification',
+    uploadConfirming: 'File sent. Confirming storage…',
+    uploadCancelling: 'Cancellation requested. Waiting for cleanup confirmation…',
+    uploadCancelled: 'Upload cancelled. The file was not saved.',
+    uploadCancellationUnconfirmed: 'The result could not be confirmed. Check cancellation before retrying the upload.',
+    uploadCompletionWon: 'Confirmation had already started. The complete file was kept.',
+    uploadCheckCancellation: 'Check cancellation',
+    cancelUpload: 'Cancel upload',
+    retryUpload: 'Retry upload',
   },
 } satisfies Record<Language, TranslationCatalog>;
 

@@ -4,9 +4,10 @@ WORKDIR /workspace
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY frontend/package.json frontend/package.json
 COPY backend/package.json backend/package.json
+COPY patches patches
 RUN pnpm install --frozen-lockfile
 COPY frontend frontend
 COPY backend backend
 WORKDIR /workspace/frontend
-EXPOSE 5173
+EXPOSE 3001
 CMD ["pnpm", "dev"]

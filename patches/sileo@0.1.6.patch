@@ -1,0 +1,315 @@
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index 4cf7fa59c0d7d7ac08783b5145058def705008ee..faeef4b307f1b8aba55a1515a4dee9439e03c6ff 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -15,6 +15,8 @@ interface SileoButton {
+ declare const SILEO_POSITIONS: readonly ["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"];
+ type SileoPosition = (typeof SILEO_POSITIONS)[number];
+ interface SileoOptions {
++    id?: string;
++    dismissible?: boolean;
+     title?: string;
+     description?: ReactNode | string;
+     type?: SileoState;
+@@ -34,6 +36,7 @@ interface SileoOptions {
+ type SileoOffsetValue = number | string;
+ type SileoOffsetConfig = Partial<Record<"top" | "right" | "bottom" | "left", SileoOffsetValue>>;
+ interface SileoToasterProps {
++    expandAll?: boolean;
+     children?: ReactNode;
+     position?: SileoPosition;
+     offset?: SileoOffsetValue | SileoOffsetConfig;
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 0c52a3a33f124bfaf35b18dc37777f4c9a314ecb..c1507e28acf95cab69f119167bb922e27df03304 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -15,6 +15,8 @@ interface SileoButton {
+ declare const SILEO_POSITIONS: readonly ["top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"];
+ type SileoPosition = (typeof SILEO_POSITIONS)[number];
+ interface SileoOptions {
++    id?: string;
++    dismissible?: boolean;
+     title?: string;
+     description?: ReactNode | string;
+     type?: SileoState;
+@@ -34,6 +36,7 @@ interface SileoOptions {
+ type SileoOffsetValue = number | string;
+ type SileoOffsetConfig = Partial<Record<"top" | "right" | "bottom" | "left", SileoOffsetValue>>;
+ interface SileoToasterProps {
++    expandAll?: boolean;
+     children?: ReactNode;
+     position?: SileoPosition;
+     offset?: SileoOffsetValue | SileoOffsetConfig;
+diff --git a/dist/index.js b/dist/index.js
+index 79aa792998ed2f8917d4b46725af2b0bbab692e0..a59852bcace996a44e662fdbd034efccebfecf89 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -192,6 +192,8 @@ const GooeyDefs = /*#__PURE__*/ react.memo(function GooeyDefs({ filterId, blur,
+ /* ------------------------------- Component -------------------------------- */ const Sileo = /*#__PURE__*/ react.memo(function Sileo({ id, fill = "#FFFFFF", state = "success", title = state, description, position = "left", expand = "bottom", className, icon, styles, button, roundness, exiting = false, autoExpandDelayMs, autoCollapseDelayMs, canExpand, interruptKey, refreshKey, onMouseEnter, onMouseLeave, onDismiss }) {
+     var _headerLayer_current_view_icon, _headerLayer_prev_view_icon;
+     var _headerLayer_current_view_styles, _headerLayer_current_view_styles1, _headerLayer_prev_view_styles, _headerLayer_prev_view_styles1, _view_styles, _view_styles1;
++    const [availableWidth, setAvailableWidth] = react.useState(WIDTH);
++    const reduceMotion = react$1.useReducedMotion();
+     const next = react.useMemo(()=>({
+             title,
+             description,
+@@ -452,7 +454,7 @@ const GooeyDefs = /*#__PURE__*/ react.memo(function GooeyDefs({ filterId, blur,
+     const expandedContent = Math.max(0, expanded - HEIGHT);
+     const resolvedPillWidth = Math.max(pillWidth || HEIGHT, HEIGHT);
+     const pillHeight = HEIGHT + blur * 3;
+-    const pillX = position === "right" ? WIDTH - resolvedPillWidth : position === "center" ? (WIDTH - resolvedPillWidth) / 2 : 0;
++    const pillX = position === "right" ? availableWidth - resolvedPillWidth : position === "center" ? (availableWidth - resolvedPillWidth) / 2 : 0;
+     /* ------------------------------- Memoised animate targets ----------------- */ const pillAnimate = react.useMemo(()=>({
+             x: pillX,
+             width: resolvedPillWidth,
+@@ -470,17 +472,17 @@ const GooeyDefs = /*#__PURE__*/ react.memo(function GooeyDefs({ filterId, blur,
+         open,
+         expandedContent
+     ]);
+-    const bodyTransition = react.useMemo(()=>open ? SPRING : cc._extends({}, SPRING, {
++    const bodyTransition = react.useMemo(()=>reduceMotion ? { duration: 0 } : open ? SPRING : cc._extends({}, SPRING, {
+             bounce: 0
+         }), [
+-        open
++        open, reduceMotion
+     ]);
+-    const pillTransition = react.useMemo(()=>ready ? SPRING : {
++    const pillTransition = react.useMemo(()=>ready && !reduceMotion ? SPRING : {
+             duration: 0
+         }, [
+-        ready
++        ready, reduceMotion
+     ]);
+-    const viewBox = `0 0 ${WIDTH} ${svgHeight}`;
++    const viewBox = `0 0 ${availableWidth} ${svgHeight}`;
+     /* ------------------------------- Inline styles ---------------------------- */ const rootStyle = react.useMemo(()=>({
+             "--_h": `${open ? expanded : HEIGHT}px`,
+             "--_pw": `${resolvedPillWidth}px`,
+@@ -525,6 +527,15 @@ const GooeyDefs = /*#__PURE__*/ react.memo(function GooeyDefs({ filterId, blur,
+     /* -------------------------------- Swipe ----------------------------------- */ const SWIPE_DISMISS = 30;
+     const SWIPE_MAX = 20;
+     const buttonRef = react.useRef(null);
++    react.useLayoutEffect(() => {
++        const element = buttonRef.current;
++        if (!element) return;
++        const measure = () => setAvailableWidth(element.clientWidth || WIDTH);
++        measure();
++        const observer = new ResizeObserver(measure);
++        observer.observe(element);
++        return () => observer.disconnect();
++    }, []);
+     const pointerStartRef = react.useRef(null);
+     const onDismissRef = react.useRef(onDismiss);
+     onDismissRef.current = onDismiss;
+@@ -582,9 +593,10 @@ const GooeyDefs = /*#__PURE__*/ react.memo(function GooeyDefs({ filterId, blur,
+         exiting,
+         onDismiss
+     ]);
+-    /* --------------------------------- Render --------------------------------- */ return /*#__PURE__*/ jsxRuntime.jsxs("button", {
++    /* --------------------------------- Render --------------------------------- */ return /*#__PURE__*/ jsxRuntime.jsxs("div", {
+         ref: buttonRef,
+-        type: "button",
++        role: "group",
++        "aria-label": typeof view.title === "string" ? view.title : undefined,
+         "data-sileo-toast": true,
+         "data-ready": ready,
+         "data-expanded": open,
+@@ -604,7 +616,7 @@ const GooeyDefs = /*#__PURE__*/ react.memo(function GooeyDefs({ filterId, blur,
+                 "data-edge": expand,
+                 children: /*#__PURE__*/ jsxRuntime.jsxs("svg", {
+                     "data-sileo-svg": true,
+-                    width: WIDTH,
++                    width: availableWidth,
+                     height: svgHeight,
+                     viewBox: viewBox,
+                     children: [
+@@ -614,7 +626,7 @@ const GooeyDefs = /*#__PURE__*/ react.memo(function GooeyDefs({ filterId, blur,
+                         /*#__PURE__*/ jsxRuntime.jsx(GooeyDefs, {
+                             filterId: filterId,
+                             blur: blur,
+-                            width: WIDTH,
++                            width: availableWidth,
+                             height: svgHeight
+                         }),
+                         /*#__PURE__*/ jsxRuntime.jsxs("g", {
+@@ -632,7 +644,7 @@ const GooeyDefs = /*#__PURE__*/ react.memo(function GooeyDefs({ filterId, blur,
+                                 /*#__PURE__*/ jsxRuntime.jsx(react$1.motion.rect, {
+                                     "data-sileo-body": true,
+                                     y: HEIGHT,
+-                                    width: WIDTH,
++                                    width: availableWidth,
+                                     rx: resolvedRoundness,
+                                     ry: resolvedRoundness,
+                                     fill: view.fill,
+@@ -744,7 +756,7 @@ const timeoutKey = (t)=>`${t.id}:${t.instanceId}`;
+     store.update((prev)=>prev.map((t)=>t.id === id ? cc._extends({}, t, {
+                 exiting: true
+             }) : t));
+-    setTimeout(()=>store.update((prev)=>prev.filter((t)=>t.id !== id)), EXIT_DURATION);
++    setTimeout(()=>store.update((prev)=>prev.filter((t)=>t.id !== id || t.instanceId !== item.instanceId)), EXIT_DURATION);
+ };
+ const resolveAutopilot = (opts, duration)=>{
+     var _ref, _ref1;
+@@ -877,7 +889,7 @@ function useResolvedTheme(theme) {
+     ]);
+     return resolved;
+ }
+-function Toaster({ children, position = "top-right", offset, options, theme }) {
++function Toaster({ children, position = "top-right", offset, options, theme, expandAll = false }) {
+     const resolvedTheme = useResolvedTheme(theme);
+     const [toasts, setToasts] = react.useState(store.toasts);
+     const [activeId, setActiveId] = react.useState();
+@@ -1065,10 +1077,10 @@ function Toaster({ children, position = "top-right", offset, options, theme }) {
+                             autoExpandDelayMs: item.autoExpandDelayMs,
+                             autoCollapseDelayMs: item.autoCollapseDelayMs,
+                             refreshKey: item.instanceId,
+-                            canExpand: activeId === undefined || activeId === item.id,
++                            canExpand: expandAll || activeId === undefined || activeId === item.id,
+                             onMouseEnter: h.enter,
+                             onMouseLeave: h.leave,
+-                            onDismiss: h.dismiss
++                            onDismiss: item.dismissible === false ? undefined : h.dismiss
+                         }, item.id);
+                     })
+                 }, pos);
+diff --git a/dist/index.mjs b/dist/index.mjs
+index f687f84725d587b4c539fccb2f86568a9c18294d..621d83d23d259544f80d1547878213495e871b75 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -11,7 +11,7 @@ function __insertCSS(code) {
+ import { _ as _extends, a as _object_without_properties_loose } from './cc-jcBWjyOA.mjs';
+ import { jsxs, jsx, Fragment } from 'react/jsx-runtime';
+ import { memo, useMemo, useState, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
+-import { motion } from 'motion/react';
++import { motion, useReducedMotion } from 'motion/react';
+ 
+ __insertCSS(":root{--sileo-spring-easing:linear(\n    0,\n    0.002 0.6%,\n    0.007 1.2%,\n    0.015 1.8%,\n    0.026 2.4%,\n    0.041 3.1%,\n    0.06 3.8%,\n    0.108 5.3%,\n    0.157 6.6%,\n    0.214 8%,\n    0.467 13.7%,\n    0.577 16.3%,\n    0.631 17.7%,\n    0.682 19.1%,\n    0.73 20.5%,\n    0.771 21.8%,\n    0.808 23.1%,\n    0.844 24.5%,\n    0.874 25.8%,\n    0.903 27.2%,\n    0.928 28.6%,\n    0.952 30.1%,\n    0.972 31.6%,\n    0.988 33.1%,\n    1.01 35.7%,\n    1.025 38.5%,\n    1.034 41.6%,\n    1.038 45%,\n    1.035 50.1%,\n    1.012 64.2%,\n    1.003 73%,\n    0.999 83.7%,\n    1\n  );--sileo-duration:600ms;--sileo-height:40px;--sileo-width:350px;--sileo-state-success:oklch(0.723 0.219 142.136);--sileo-state-loading:oklch(0.556 0 0);--sileo-state-error:oklch(0.637 0.237 25.331);--sileo-state-warning:oklch(0.795 0.184 86.047);--sileo-state-info:oklch(0.685 0.169 237.323);--sileo-state-action:oklch(0.623 0.214 259.815)}[data-sileo-toast]{position:relative;cursor:pointer;pointer-events:auto;touch-action:none;border:0;background:0 0;padding:0;width:var(--sileo-width);height:var(--_h,var(--sileo-height));opacity:0;transform:translateZ(0) scale(.95);transform-origin:center;contain:layout style;overflow:visible}[data-sileo-toast][data-state=loading]{cursor:default}[data-sileo-toast][data-ready=true]{opacity:1;transform:translateZ(0) scale(1);transition:transform calc(var(--sileo-duration) * .66) var(--sileo-spring-easing),opacity calc(var(--sileo-duration) * .66) var(--sileo-spring-easing),margin-bottom calc(var(--sileo-duration) * .66) var(--sileo-spring-easing),margin-top calc(var(--sileo-duration) * .66) var(--sileo-spring-easing),height var(--sileo-duration) var(--sileo-spring-easing)}[data-sileo-viewport][data-position^=top] [data-sileo-toast]:not([data-ready=true]){transform:translateY(-6px) scale(.95)}[data-sileo-viewport][data-position^=bottom] [data-sileo-toast]:not([data-ready=true]){transform:translateY(6px) scale(.95)}[data-sileo-toast][data-ready=true][data-exiting=true]{opacity:0;pointer-events:none}[data-sileo-viewport][data-position^=top] [data-sileo-toast][data-ready=true][data-exiting=true]{transform:translateY(-6px) scale(.95)}[data-sileo-viewport][data-position^=bottom] [data-sileo-toast][data-ready=true][data-exiting=true]{transform:translateY(6px) scale(.95)}[data-sileo-canvas]{position:absolute;left:0;right:0;pointer-events:none;transform:translateZ(0);contain:layout style;overflow:visible}[data-sileo-canvas][data-edge=top]{bottom:0;transform:scaleY(-1) translateZ(0)}[data-sileo-canvas][data-edge=bottom]{top:0}[data-sileo-svg]{overflow:visible}[data-sileo-header]{position:absolute;z-index:20;display:flex;align-items:center;padding:.5rem;height:var(--sileo-height);overflow:hidden;left:var(--_px,0);transform:var(--_ht);max-width:var(--_pw)}[data-sileo-toast][data-ready=true] [data-sileo-header]{transition:transform var(--sileo-duration) var(--sileo-spring-easing),left var(--sileo-duration) var(--sileo-spring-easing),max-width var(--sileo-duration) var(--sileo-spring-easing)}[data-sileo-header][data-edge=top]{bottom:0}[data-sileo-header][data-edge=bottom]{top:0}[data-sileo-header-stack]{position:relative;display:inline-flex;align-items:center;height:100%}[data-sileo-header-inner]{display:flex;align-items:center;gap:.5rem;white-space:nowrap;opacity:1;filter:blur(0px);transform:translateZ(0)}[data-sileo-header-inner][data-layer=current]{position:relative;z-index:1;animation:sileo-header-enter var(--sileo-duration) var(--sileo-spring-easing) both}[data-sileo-header-inner][data-exiting=true],[data-sileo-header-inner][data-layer=current]:not(:only-child){will-change:opacity,filter}[data-sileo-header-inner][data-layer=prev]{position:absolute;left:0;top:0;z-index:0;pointer-events:none}[data-sileo-header-inner][data-exiting=true]{animation:sileo-header-exit calc(var(--sileo-duration) * .7) ease forwards}[data-sileo-badge]{display:flex;height:24px;width:24px;flex-shrink:0;align-items:center;justify-content:center;padding:2px;box-sizing:border-box;border-radius:9999px;color:var(--sileo-tone,currentColor);background-color:var(--sileo-tone-bg,transparent)}[data-sileo-title]{font-size:.825rem;line-height:1rem;font-weight:500;text-transform:capitalize;color:var(--sileo-tone,currentColor)}:is([data-sileo-badge],[data-sileo-title],[data-sileo-button])[data-state]{--_c:var(--sileo-state-success)}:is([data-sileo-badge],[data-sileo-title],[data-sileo-button])[data-state=loading]{--_c:var(--sileo-state-loading)}:is([data-sileo-badge],[data-sileo-title],[data-sileo-button])[data-state=error]{--_c:var(--sileo-state-error)}:is([data-sileo-badge],[data-sileo-title],[data-sileo-button])[data-state=warning]{--_c:var(--sileo-state-warning)}:is([data-sileo-badge],[data-sileo-title],[data-sileo-button])[data-state=info]{--_c:var(--sileo-state-info)}:is([data-sileo-badge],[data-sileo-title],[data-sileo-button])[data-state=action]{--_c:var(--sileo-state-action)}:is([data-sileo-badge],[data-sileo-title])[data-state]{--sileo-tone:var(--_c);--sileo-tone-bg:color-mix(in oklch, var(--_c) 20%, transparent)}[data-sileo-content]{position:absolute;left:0;z-index:10;width:100%;pointer-events:none;opacity:var(--_co, 0)}[data-sileo-content]:not([data-visible=true]){content-visibility:hidden}[data-sileo-toast][data-ready=true] [data-sileo-content]{transition:opacity calc(var(--sileo-duration) * .08) ease calc(var(--sileo-duration) * .04)}[data-sileo-content][data-edge=top]{top:0}[data-sileo-content][data-edge=bottom]{top:var(--sileo-height)}[data-sileo-content][data-visible=true]{pointer-events:auto}[data-sileo-toast][data-ready=true] [data-sileo-content][data-visible=true]{transition:opacity calc(var(--sileo-duration) * .6) ease calc(var(--sileo-duration) * .3)}[data-sileo-description]{width:100%;text-align:left;padding:1rem;font-size:.875rem;line-height:1.25rem;contain:layout style paint;content-visibility:auto}[data-sileo-button]{display:flex;align-items:center;justify-content:center;height:1.75rem;padding:0 .625rem;margin-top:.75rem;border-radius:9999px;border:0;font-size:.75rem;font-weight:500;cursor:pointer;color:var(--sileo-btn-color,currentColor);background-color:var(--sileo-btn-bg,transparent);transition:background-color 150ms ease}[data-sileo-button]:hover{background-color:var(--sileo-btn-bg-hover,transparent)}[data-sileo-button][data-state]{--sileo-btn-color:var(--_c);--sileo-btn-bg:color-mix(in oklch, var(--_c) 15%, transparent);--sileo-btn-bg-hover:color-mix(in oklch, var(--_c) 25%, transparent)}[data-sileo-icon=spin]{animation:sileo-spin 1s linear infinite}@keyframes sileo-spin{to{transform:rotate(360deg)}}@keyframes sileo-header-enter{from{opacity:0;filter:blur(6px)}to{opacity:1;filter:blur(0px)}}@keyframes sileo-header-exit{from{opacity:1;filter:blur(0px)}to{opacity:0;filter:blur(6px)}}[data-sileo-viewport]{position:fixed;z-index:50;display:flex;gap:.75rem;padding:.75rem;pointer-events:none;max-width:calc(100vw - 1.5rem);contain:layout style}[data-sileo-viewport][data-position^=top] [data-sileo-toast]:not([data-ready=true]){margin-bottom:calc(-1 * (var(--sileo-height) + .75rem))}[data-sileo-viewport][data-position^=bottom] [data-sileo-toast]:not([data-ready=true]){margin-top:calc(-1 * (var(--sileo-height) + .75rem))}[data-sileo-viewport][data-position^=top]{top:0;flex-direction:column-reverse}[data-sileo-viewport][data-position^=bottom]{bottom:0;flex-direction:column}[data-sileo-viewport][data-position$=left]{left:0;align-items:flex-start}[data-sileo-viewport][data-position$=right]{right:0;align-items:flex-end}[data-sileo-viewport][data-position$=center]{left:50%;transform:translateX(-50%);align-items:center}@media (prefers-reduced-motion:no-preference){[data-sileo-toast][data-ready=true]:hover,[data-sileo-toast][data-ready=true][data-exiting=true]{will-change:transform,opacity,height}}@media (prefers-reduced-motion:reduce){[data-sileo-viewport],[data-sileo-viewport] *,[data-sileo-viewport] ::after,[data-sileo-viewport] ::before{animation-duration:0s;animation-iteration-count:1;transition-duration:0s}}[data-sileo-viewport][data-theme=dark] [data-sileo-description]{color:rgba(0,0,0,.5)}[data-sileo-viewport][data-theme=light] [data-sileo-description]{color:rgba(255,255,255,.5)}");
+ 
+@@ -190,6 +190,8 @@ const GooeyDefs = /*#__PURE__*/ memo(function GooeyDefs({ filterId, blur, width,
+ /* ------------------------------- Component -------------------------------- */ const Sileo = /*#__PURE__*/ memo(function Sileo({ id, fill = "#FFFFFF", state = "success", title = state, description, position = "left", expand = "bottom", className, icon, styles, button, roundness, exiting = false, autoExpandDelayMs, autoCollapseDelayMs, canExpand, interruptKey, refreshKey, onMouseEnter, onMouseLeave, onDismiss }) {
+     var _headerLayer_current_view_icon, _headerLayer_prev_view_icon;
+     var _headerLayer_current_view_styles, _headerLayer_current_view_styles1, _headerLayer_prev_view_styles, _headerLayer_prev_view_styles1, _view_styles, _view_styles1;
++    const [availableWidth, setAvailableWidth] = useState(WIDTH);
++    const reduceMotion = useReducedMotion();
+     const next = useMemo(()=>({
+             title,
+             description,
+@@ -450,7 +452,7 @@ const GooeyDefs = /*#__PURE__*/ memo(function GooeyDefs({ filterId, blur, width,
+     const expandedContent = Math.max(0, expanded - HEIGHT);
+     const resolvedPillWidth = Math.max(pillWidth || HEIGHT, HEIGHT);
+     const pillHeight = HEIGHT + blur * 3;
+-    const pillX = position === "right" ? WIDTH - resolvedPillWidth : position === "center" ? (WIDTH - resolvedPillWidth) / 2 : 0;
++    const pillX = position === "right" ? availableWidth - resolvedPillWidth : position === "center" ? (availableWidth - resolvedPillWidth) / 2 : 0;
+     /* ------------------------------- Memoised animate targets ----------------- */ const pillAnimate = useMemo(()=>({
+             x: pillX,
+             width: resolvedPillWidth,
+@@ -468,17 +470,17 @@ const GooeyDefs = /*#__PURE__*/ memo(function GooeyDefs({ filterId, blur, width,
+         open,
+         expandedContent
+     ]);
+-    const bodyTransition = useMemo(()=>open ? SPRING : _extends({}, SPRING, {
++    const bodyTransition = useMemo(()=>reduceMotion ? { duration: 0 } : open ? SPRING : _extends({}, SPRING, {
+             bounce: 0
+         }), [
+-        open
++        open, reduceMotion
+     ]);
+-    const pillTransition = useMemo(()=>ready ? SPRING : {
++    const pillTransition = useMemo(()=>ready && !reduceMotion ? SPRING : {
+             duration: 0
+         }, [
+-        ready
++        ready, reduceMotion
+     ]);
+-    const viewBox = `0 0 ${WIDTH} ${svgHeight}`;
++    const viewBox = `0 0 ${availableWidth} ${svgHeight}`;
+     /* ------------------------------- Inline styles ---------------------------- */ const rootStyle = useMemo(()=>({
+             "--_h": `${open ? expanded : HEIGHT}px`,
+             "--_pw": `${resolvedPillWidth}px`,
+@@ -523,6 +525,15 @@ const GooeyDefs = /*#__PURE__*/ memo(function GooeyDefs({ filterId, blur, width,
+     /* -------------------------------- Swipe ----------------------------------- */ const SWIPE_DISMISS = 30;
+     const SWIPE_MAX = 20;
+     const buttonRef = useRef(null);
++    useLayoutEffect(() => {
++        const element = buttonRef.current;
++        if (!element) return;
++        const measure = () => setAvailableWidth(element.clientWidth || WIDTH);
++        measure();
++        const observer = new ResizeObserver(measure);
++        observer.observe(element);
++        return () => observer.disconnect();
++    }, []);
+     const pointerStartRef = useRef(null);
+     const onDismissRef = useRef(onDismiss);
+     onDismissRef.current = onDismiss;
+@@ -580,9 +591,10 @@ const GooeyDefs = /*#__PURE__*/ memo(function GooeyDefs({ filterId, blur, width,
+         exiting,
+         onDismiss
+     ]);
+-    /* --------------------------------- Render --------------------------------- */ return /*#__PURE__*/ jsxs("button", {
++    /* --------------------------------- Render --------------------------------- */ return /*#__PURE__*/ jsxs("div", {
+         ref: buttonRef,
+-        type: "button",
++        role: "group",
++        "aria-label": typeof view.title === "string" ? view.title : undefined,
+         "data-sileo-toast": true,
+         "data-ready": ready,
+         "data-expanded": open,
+@@ -602,7 +614,7 @@ const GooeyDefs = /*#__PURE__*/ memo(function GooeyDefs({ filterId, blur, width,
+                 "data-edge": expand,
+                 children: /*#__PURE__*/ jsxs("svg", {
+                     "data-sileo-svg": true,
+-                    width: WIDTH,
++                    width: availableWidth,
+                     height: svgHeight,
+                     viewBox: viewBox,
+                     children: [
+@@ -612,7 +624,7 @@ const GooeyDefs = /*#__PURE__*/ memo(function GooeyDefs({ filterId, blur, width,
+                         /*#__PURE__*/ jsx(GooeyDefs, {
+                             filterId: filterId,
+                             blur: blur,
+-                            width: WIDTH,
++                            width: availableWidth,
+                             height: svgHeight
+                         }),
+                         /*#__PURE__*/ jsxs("g", {
+@@ -630,7 +642,7 @@ const GooeyDefs = /*#__PURE__*/ memo(function GooeyDefs({ filterId, blur, width,
+                                 /*#__PURE__*/ jsx(motion.rect, {
+                                     "data-sileo-body": true,
+                                     y: HEIGHT,
+-                                    width: WIDTH,
++                                    width: availableWidth,
+                                     rx: resolvedRoundness,
+                                     ry: resolvedRoundness,
+                                     fill: view.fill,
+@@ -742,7 +754,7 @@ const timeoutKey = (t)=>`${t.id}:${t.instanceId}`;
+     store.update((prev)=>prev.map((t)=>t.id === id ? _extends({}, t, {
+                 exiting: true
+             }) : t));
+-    setTimeout(()=>store.update((prev)=>prev.filter((t)=>t.id !== id)), EXIT_DURATION);
++    setTimeout(()=>store.update((prev)=>prev.filter((t)=>t.id !== id || t.instanceId !== item.instanceId)), EXIT_DURATION);
+ };
+ const resolveAutopilot = (opts, duration)=>{
+     var _ref, _ref1;
+@@ -875,7 +887,7 @@ function useResolvedTheme(theme) {
+     ]);
+     return resolved;
+ }
+-function Toaster({ children, position = "top-right", offset, options, theme }) {
++function Toaster({ children, position = "top-right", offset, options, theme, expandAll = false }) {
+     const resolvedTheme = useResolvedTheme(theme);
+     const [toasts, setToasts] = useState(store.toasts);
+     const [activeId, setActiveId] = useState();
+@@ -1063,10 +1075,10 @@ function Toaster({ children, position = "top-right", offset, options, theme }) {
+                             autoExpandDelayMs: item.autoExpandDelayMs,
+                             autoCollapseDelayMs: item.autoCollapseDelayMs,
+                             refreshKey: item.instanceId,
+-                            canExpand: activeId === undefined || activeId === item.id,
++                            canExpand: expandAll || activeId === undefined || activeId === item.id,
+                             onMouseEnter: h.enter,
+                             onMouseLeave: h.leave,
+-                            onDismiss: h.dismiss
++                            onDismiss: item.dismissible === false ? undefined : h.dismiss
+                         }, item.id);
+                     })
+                 }, pos);
