@@ -18,7 +18,8 @@
       "deepmerge-ts": "8.0.2",
       "@graphql-tools/utils": "12.1.0",
       "multer": "2.5.0",
-      "js-yaml": "5.4.1"
+      "js-yaml": "5.4.1",
+      "postcss": "8.5.32"
     },
     "patchedDependencies": {
       "sileo@0.1.6": "patches/sileo@0.1.6.patch"

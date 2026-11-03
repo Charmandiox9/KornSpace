@@ -36,7 +36,7 @@ async function connectDebugger(url) {
   });
   let id = 0;
   const pending = new Map();
-  const handlers = new Map();
+  let fetchRequestPausedHandler;
   socket.addEventListener('message', ({ data }) => {
     const message = JSON.parse(data);
     if (message.id) {
@@ -45,7 +45,7 @@ async function connectDebugger(url) {
       if (message.error) request?.reject(new Error(message.error.message));
       else request?.resolve(message.result);
     } else {
-      handlers.get(message.method)?.(message.params);
+      if (message.method === 'Fetch.requestPaused') fetchRequestPausedHandler?.(message.params);
     }
   });
   socket.addEventListener('close', () => {
@@ -60,7 +60,7 @@ async function connectDebugger(url) {
         socket.send(JSON.stringify({ id: requestId, method, params }));
       });
     },
-    on(method, handler) { handlers.set(method, handler); },
+    onFetchRequestPaused(handler) { fetchRequestPausedHandler = handler; },
     close() { socket.close(); },
   };
 }
@@ -105,6 +105,18 @@ test('session navigation and multiple uploads in a real browser with a simulated
       if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
       return result.result.value;
     };
+    const evaluateFunction = async (functionDeclaration, ...args) => {
+      const { result: globalObject } = await cdp.send('Runtime.evaluate', { expression: 'globalThis' });
+      const response = await cdp.send('Runtime.callFunctionOn', {
+        objectId: globalObject.objectId,
+        functionDeclaration,
+        arguments: args.map((value) => ({ value })),
+        returnByValue: true,
+        awaitPromise: true,
+      });
+      if (response.exceptionDetails) throw new Error(response.exceptionDetails.text);
+      return response.result.value;
+    };
     const user = { id: 'test-user', email: 'test@example.test', name: 'Test', username: 'test', pictureUrl: null };
     const records = [];
     const uploads = [];
@@ -136,7 +148,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
     });
     await new Promise((resolve) => uploadServer.listen(0, '127.0.0.1', resolve));
     const uploadOrigin = `http://127.0.0.1:${uploadServer.address().port}`;
-    cdp.on('Fetch.requestPaused', (event) => {
+    cdp.onFetchRequestPaused((event) => {
       void (async () => {
         const url = new URL(event.request.url);
         let status = 200;
@@ -242,18 +254,46 @@ test('session navigation and multiple uploads in a real browser with a simulated
       assert.equal(await evaluate("document.querySelector('[role=region]').classList.contains('border-accent')"), false);
     });
 
-    const itemText = (name) => `Array.from(document.querySelectorAll('[data-upload-notification]')).find(item => item.dataset.uploadName === ${JSON.stringify(name)})`;
+    const uploadSnapshot = (name) => evaluateFunction(`function (name) {
+      const item = Array.from(document.querySelectorAll('[data-upload-notification]')).find((entry) => entry.dataset.uploadName === name);
+      const progress = item?.querySelector('[role=progressbar]');
+      const cancel = item?.querySelector('button[aria-labelledby*=cancel]');
+      const action = item?.querySelector('button[aria-labelledby*=action]');
+      return {
+        exists: Boolean(item),
+        state: item?.dataset.uploadState ?? null,
+        text: item?.innerText ?? '',
+        progress: progress?.getAttribute('aria-valuenow') ?? null,
+        progressRight: progress?.getBoundingClientRect().right ?? null,
+        hasProgress: Boolean(progress),
+        cancelRight: cancel?.getBoundingClientRect().right ?? null,
+        cancelTitle: cancel?.getAttribute('title') ?? null,
+        actionText: action?.innerText ?? null,
+      };
+    }`, name);
+    const clickUploadButton = (name) => evaluateFunction(`function (name) {
+      const item = Array.from(document.querySelectorAll('[data-upload-notification]')).find((entry) => entry.dataset.uploadName === name);
+      item?.querySelector('button')?.click();
+    }`, name);
+    const rememberUploadToast = (name) => evaluateFunction(`function (name) {
+      const item = Array.from(document.querySelectorAll('[data-upload-notification]')).find((entry) => entry.dataset.uploadName === name);
+      window.testProgressToast = item?.closest('[data-sileo-toast]');
+    }`, name);
+    const isSameUploadToast = (name) => evaluateFunction(`function (name) {
+      const item = Array.from(document.querySelectorAll('[data-upload-notification]')).find((entry) => entry.dataset.uploadName === name);
+      return window.testProgressToast === item?.closest('[data-sileo-toast]');
+    }`, name);
 
     await t.test('shows genuine intermediate byte progress over a throttled HTTP upload', async () => {
       await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 512 * 1024 });
       const filename = path.join(temporaryDirectory, 'progress.txt');
       await writeFile(filename, Buffer.alloc(2 * 1024 * 1024, 'x'));
       await selectFiles([filename]);
-      await until(() => evaluate(`(() => { const item = ${itemText('progress.txt')}; const value = Number(item?.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow')); return value > 0 && value < 100; })()`), 'intermediate progress');
-      await until(() => evaluate(`(${itemText('progress.txt')})?.dataset.uploadState === 'confirming'`), 'server confirmation phase');
-      assert.equal(await evaluate(`(${itemText('progress.txt')}).querySelector('[role=progressbar]').getAttribute('aria-valuenow')`), '100');
-      await until(() => evaluate(`(${itemText('progress.txt')})?.innerText.includes('El archivo está disponible')`), 'upload completion');
-      assert.equal(await evaluate(`(${itemText('progress.txt')}).querySelector('[role=progressbar]') === null`), true);
+      await until(async () => { const item = await uploadSnapshot('progress.txt'); const value = Number(item.progress); return value > 0 && value < 100; }, 'intermediate progress');
+      await until(async () => (await uploadSnapshot('progress.txt')).state === 'confirming', 'server confirmation phase');
+      assert.equal((await uploadSnapshot('progress.txt')).progress, '100');
+      await until(async () => (await uploadSnapshot('progress.txt')).text.includes('El archivo está disponible'), 'upload completion');
+      assert.equal((await uploadSnapshot('progress.txt')).hasProgress, false);
       await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
     });
 
@@ -264,14 +304,15 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await writeFile(cancelled, Buffer.alloc(8 * 1024 * 1024, 'x'));
       await writeFile(other, 'content');
       await selectFiles([cancelled, other]);
-      await until(() => evaluate(`(${itemText('cancel-me.txt')})?.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') > 0`), 'active cancellable upload');
-      assert.equal(await evaluate(`(${itemText('cancel-me.txt')}).querySelector('button[aria-labelledby*=cancel]')?.getBoundingClientRect().right > (${itemText('cancel-me.txt')}).querySelector('[role=progressbar]').getBoundingClientRect().right`), true);
-      assert.equal(await evaluate(`(${itemText('cancel-me.txt')}).querySelector('button[aria-labelledby*=cancel]')?.getAttribute('title')`), 'Cancelar carga');
-      await evaluate(`(${itemText('cancel-me.txt')}).querySelector('button').click()`);
-      await until(() => evaluate(`(${itemText('cancel-me.txt')})?.innerText.includes('Carga cancelada')`), 'confirmed cancellation');
+      await until(async () => Number((await uploadSnapshot('cancel-me.txt')).progress) > 0, 'active cancellable upload');
+      const cancellingUpload = await uploadSnapshot('cancel-me.txt');
+      assert.equal(cancellingUpload.cancelRight > cancellingUpload.progressRight, true);
+      assert.equal(cancellingUpload.cancelTitle, 'Cancelar carga');
+      await clickUploadButton('cancel-me.txt');
+      await until(async () => (await uploadSnapshot('cancel-me.txt')).text.includes('Carga cancelada'), 'confirmed cancellation');
       await until(() => records.some((record) => record.name === 'keep-me.txt'), 'unaffected upload');
       assert.equal(records.some((record) => record.name === 'cancel-me.txt'), false);
-      assert.equal(await evaluate(`(${itemText('cancel-me.txt')}).querySelector('button[aria-labelledby*=action]').innerText`), 'Reintentar carga');
+      assert.equal((await uploadSnapshot('cancel-me.txt')).actionText, 'Reintentar carga');
       await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
     });
 
@@ -292,10 +333,10 @@ test('session navigation and multiple uploads in a real browser with a simulated
       assert.equal(await evaluate("document.querySelectorAll('[data-sileo-toast]:not([data-exiting=true])').length"), 1);
       assert.equal(await evaluate("window.testUploadGroup === document.querySelector('[data-sileo-toast]')"), true);
       assert.ok(await evaluate("document.querySelector('[data-upload-group]').getBoundingClientRect().height") > initialHeight);
-      await evaluate(`void (window.testProgressToast = (${itemText(names[0])}).closest('[data-sileo-toast]'))`);
+      await rememberUploadToast(names[0]);
       assert.equal(await evaluate("Boolean(document.querySelector('[aria-labelledby=uploads-heading]'))"), false);
       assert.equal(await evaluate("Boolean(document.querySelector('button[data-sileo-toast] button, [data-sileo-toast] button button'))"), false);
-      await until(() => evaluate(`(${itemText(names[0])})?.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow') > 0`), 'concurrent progress');
+      await until(async () => Number((await uploadSnapshot(names[0])).progress) > 0, 'concurrent progress');
       if (process.env.UPLOAD_SCREENSHOT_PATH) {
         await delay(700);
         const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' });
@@ -303,7 +344,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
       }
       await until(() => evaluate("Array.from(document.querySelectorAll('[data-upload-notification]')).filter(item => item.dataset.uploadName.startsWith('toast-') && item.dataset.uploadState === 'uploaded').length === 3"), 'three completed notifications');
       await until(() => evaluate("Array.from(document.querySelectorAll('[data-upload-notification]')).filter(item => item.querySelector('[data-upload-check]') && item.textContent.includes('Subida completada')).length === 3"), 'success title and tick per grouped file');
-      assert.equal(await evaluate(`window.testProgressToast === (${itemText(names[0])}).closest('[data-sileo-toast]')`), true);
+      assert.equal(await isSameUploadToast(names[0]), true);
       if (process.env.UPLOAD_SCREENSHOT_PATH) {
         await delay(700);
         const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' });
