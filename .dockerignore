@@ -3,5 +3,7 @@ node_modules
 **/node_modules
 **/dist
 **/.test-dist
+**/.next
+**/.next-dev
 coverage
 *.log
