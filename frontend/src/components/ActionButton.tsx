@@ -1,17 +1,9 @@
-import type { ReactNode } from 'react';
-
-export interface ActionButtonProps {
-  ariaLabel: string;
-  children: ReactNode;
-  onClick: () => void;
-  pressed?: boolean;
-  title: string;
-}
+import type { ActionButtonProps } from '@/types';
 
 export function ActionButton({ ariaLabel, children, onClick, pressed, title }: ActionButtonProps) {
   return (
     <button
-      className="action-button"
+      className="inline-flex min-h-[46px] w-full cursor-pointer items-center justify-start gap-[9px] rounded-xl border border-line bg-surface px-[13px] text-[13px] font-medium text-ink transition duration-150 hover:-translate-y-px hover:border-accent-line hover:bg-accent-soft motion-reduce:transition-none"
       type="button"
       aria-label={ariaLabel}
       aria-pressed={pressed}
@@ -42,7 +34,7 @@ export function SunIcon() {
 
 export function GoogleIcon() {
   return (
-    <svg className="google-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="size-[19px]" viewBox="0 0 24 24" aria-hidden="true">
       <path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.39-.18-2.05H12v3.88h5.38a4.6 4.6 0 0 1-2 3.02v2.52h3.23c1.9-1.75 2.99-4.33 2.99-7.37Z" />
       <path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.62-2.4l-3.23-2.52c-.9.6-2.04.96-3.39.96-2.6 0-4.8-1.76-5.59-4.12H3.07v2.6A10 10 0 0 0 12 22Z" />
       <path fill="#FBBC05" d="M6.41 13.92a6 6 0 0 1 0-3.84v-2.6H3.07a10 10 0 0 0 0 9.04l3.34-2.6Z" />

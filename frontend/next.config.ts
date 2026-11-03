@@ -1,0 +1,19 @@
+import type { NextConfig } from 'next';
+import { PHASE_DEVELOPMENT_SERVER } from 'next/constants';
+
+const apiProxyTarget = (process.env.API_PROXY_TARGET ?? 'http://localhost:3000').replace(/\/+$/u, '');
+
+export default function nextConfig(phase: string): NextConfig {
+  return {
+    // Uploads are streamed through the Next proxy and may be as large as 100 MiB.
+    experimental: { middlewareClientMaxBodySize: '100mb' },
+    // Keep the running development server independent from production builds and E2E tests.
+    distDir: phase === PHASE_DEVELOPMENT_SERVER ? '.next-dev' : '.next',
+    async rewrites() {
+      return [
+        { source: '/api/:path*', destination: `${apiProxyTarget}/api/:path*` },
+        { source: '/graphql', destination: `${apiProxyTarget}/graphql` },
+      ];
+    },
+  };
+}

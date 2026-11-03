@@ -6,8 +6,8 @@ services:
       target: development
     command: pnpm dev
     environment:
-      VITE_API_PROXY_TARGET: http://backend:3000
-      VITE_API_BASE_URL: ""
+      API_PROXY_TARGET: http://backend:3000
+      NEXT_PUBLIC_API_WS_URL: ${NEXT_PUBLIC_API_WS_URL:-}
     volumes:
       - .:/workspace
       - workspace_node_modules_v2:/workspace/node_modules
@@ -15,7 +15,7 @@ services:
       - backend_node_modules_prisma_v2:/workspace/backend/node_modules
     working_dir: /workspace/frontend
     expose:
-      - "5173"
+      - "3001"
     restart: unless-stopped
 
   backend:
@@ -34,7 +34,7 @@ services:
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost/api/auth/google/callback}
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost}
+      FRONTEND_ORIGIN: http://localhost
       JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en .env}
       JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-604800}
