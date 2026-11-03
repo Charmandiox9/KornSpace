@@ -11,10 +11,10 @@
     "prisma:migrate:dev": "node scripts/prisma-with-root-env.cjs migrate dev",
     "prisma:migrate:deploy": "node scripts/prisma-with-root-env.cjs migrate deploy",
     "prisma:migrate:status": "node scripts/prisma-with-root-env.cjs migrate status",
-    "test:compile": "tsc --module commonjs --target ES2022 --strict --esModuleInterop --emitDecoratorMetadata --experimentalDecorators --skipLibCheck --rootDir . --outDir .test-dist test/health.e2e-spec.ts test/prisma.service.spec.ts test/files.service.spec.ts test/files.e2e-spec.ts test/auth.guard.spec.ts test/auth.e2e-spec.ts test/auth.flow.spec.ts",
-    "test:unit": "pnpm test:compile && node --test .test-dist/test/prisma.service.spec.js .test-dist/test/files.service.spec.js .test-dist/test/auth.flow.spec.js",
-    "test:e2e": "pnpm test:compile && node --test .test-dist/test/health.e2e-spec.js .test-dist/test/files.e2e-spec.js .test-dist/test/auth.e2e-spec.js",
-    "test": "pnpm test:compile && node --test .test-dist/test/prisma.service.spec.js .test-dist/test/files.service.spec.js .test-dist/test/health.e2e-spec.js .test-dist/test/files.e2e-spec.js .test-dist/test/auth.guard.spec.js .test-dist/test/auth.e2e-spec.js .test-dist/test/auth.flow.spec.js"
+    "test:compile": "tsc --module commonjs --target ES2022 --strict --esModuleInterop --emitDecoratorMetadata --experimentalDecorators --skipLibCheck --rootDir . --outDir .test-dist test/health.e2e-spec.ts test/prisma.service.spec.ts test/files.service.spec.ts test/files.e2e-spec.ts test/auth.guard.spec.ts test/auth.e2e-spec.ts test/auth.flow.spec.ts test/managed-uploads.spec.ts test/managed-uploads.e2e-spec.ts",
+    "test:unit": "pnpm test:compile && node --test .test-dist/test/prisma.service.spec.js .test-dist/test/files.service.spec.js .test-dist/test/auth.flow.spec.js .test-dist/test/managed-uploads.spec.js",
+    "test:e2e": "pnpm test:compile && node --test .test-dist/test/health.e2e-spec.js .test-dist/test/files.e2e-spec.js .test-dist/test/auth.e2e-spec.js .test-dist/test/managed-uploads.e2e-spec.js",
+    "test": "pnpm test:compile && node --test .test-dist/test/prisma.service.spec.js .test-dist/test/files.service.spec.js .test-dist/test/health.e2e-spec.js .test-dist/test/files.e2e-spec.js .test-dist/test/auth.guard.spec.js .test-dist/test/auth.e2e-spec.js .test-dist/test/auth.flow.spec.js .test-dist/test/managed-uploads.spec.js .test-dist/test/managed-uploads.e2e-spec.js"
   },
   "dependencies": {
     "@apollo/server": "^5",
@@ -35,7 +35,8 @@
     "graphql": "^16.14.2",
     "ioredis": "^6.0.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.7",
@@ -43,6 +44,7 @@
     "@nestjs/testing": "^11.1.3",
     "@types/express": "^5.0.3",
     "@types/node": "^22.15.30",
+    "@types/ws": "^8.18.2",
     "prisma": "6.19.3",
     "typescript": "^5.8.3"
   }

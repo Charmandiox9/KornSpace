@@ -22,6 +22,7 @@ test('file REST endpoints expose upload, listing, and processing status', async 
     status: 'PROCESSING',
     checksum: null,
     createdAt: '2026-10-27T12:00:00.000Z',
+    deletedAt: null,
   };
   const availableFile: StoredFileResponse = {
     ...file,

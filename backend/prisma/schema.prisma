@@ -35,8 +35,10 @@ model StoredFile {
   checksum    String?
   status      FileStatus @default(PROCESSING)
   createdAt   DateTime   @default(now())
+  deletedAt   DateTime?
   ownerId     String?    @db.Uuid
   owner       User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
 
   @@index([ownerId, createdAt])
+  @@index([ownerId, deletedAt])
 }
