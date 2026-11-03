@@ -6,7 +6,7 @@ import {
   getNextLanguage,
   getNextTheme,
   translations,
-} from '../.test-dist/i18n.js';
+} from '../.test-dist/i18n/index.js';
 
 describe('language preference', () => {
   it('uses a saved supported language before the browser language', () => {
