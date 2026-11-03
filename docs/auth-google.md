@@ -30,8 +30,8 @@ Copy-Item .env.example .env
 GOOGLE_OAUTH_CLIENT_ID=tu-id-de-cliente.apps.googleusercontent.com
 GOOGLE_OAUTH_CLIENT_SECRET=tu-secreto-de-cliente
 GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
-FRONTEND_ORIGIN=http://localhost:5173
-VITE_API_BASE_URL=http://localhost:3000
+FRONTEND_ORIGIN=http://localhost:3001
+API_PROXY_TARGET=http://localhost:3000
 JWT_SECRET=secreto-aleatorio-de-al-menos-32-bytes
 JWT_ACCESS_TTL_SECONDS=900
 SESSION_TTL_SECONDS=604800
@@ -50,7 +50,7 @@ Para el Compose local se usa HTTP, por eso `AUTH_COOKIE_SECURE=false`. En cualqu
 
 ## Arrancar
 
-Para desarrollo con frontend y backend ejecutados directamente, registra en Google el callback exacto `http://localhost:3000/api/auth/google/callback`, usa `FRONTEND_ORIGIN=http://localhost:5173` y `VITE_API_BASE_URL=http://localhost:3000`. Para Compose con Nginx usa el callback `http://localhost/api/auth/google/callback`, `FRONTEND_ORIGIN=http://localhost` y deja `VITE_API_BASE_URL` vacío. Después de configurar PostgreSQL y LocalStack descritos en [puesta en marcha](getting-started.md), ejecuta:
+Para desarrollo con frontend y backend ejecutados directamente, registra en Google el callback exacto `http://localhost:3000/api/auth/google/callback`, usa `FRONTEND_ORIGIN=http://localhost:3001` y `API_PROXY_TARGET=http://localhost:3000`. Para Compose con Nginx usa el callback `http://localhost/api/auth/google/callback` y `FRONTEND_ORIGIN=http://localhost`; Compose configura el destino interno del proxy como `http://backend:3000`. Después de configurar PostgreSQL y LocalStack descritos en [puesta en marcha](getting-started.md), ejecuta:
 
 ```sh
 docker compose config --quiet

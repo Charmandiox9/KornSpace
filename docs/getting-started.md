@@ -25,10 +25,10 @@ Completa `.env`:
 | `POSTGRES_DATABASE_URL` | URL del backend hacia `postgres:5432`; debe coincidir con usuario, base y contraseña. |
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Credenciales de cliente web creadas en Google Cloud Console. |
 | `GOOGLE_OAUTH_REDIRECT_URI` | Callback registrado en Google; local: `http://localhost/api/auth/google/callback`. |
-| `FRONTEND_ORIGIN` | Origen al que vuelve el callback; local: `http://localhost`. |
+| `FRONTEND_ORIGIN` | Origen al que vuelve el callback; desarrollo directo: `http://localhost:3001`. Compose usa `http://localhost` detrás de Nginx. |
 | `JWT_SECRET` | Secreto aleatorio de al menos 32 bytes para firmar JWT internos. |
 | `AUTH_COOKIE_SECURE` | `false` sólo para HTTP local; `true` en HTTPS. |
-| `VITE_API_BASE_URL` | URL del backend accesible desde el navegador en desarrollo directo; en Compose se deja vacía. |
+| `API_PROXY_TARGET` | Destino del proxy del servidor Next.js; usa `http://localhost:3000` en desarrollo directo. Compose lo configura como `http://backend:3000`. |
 
 Compose todavía exige las dos URLs de Neon al interpolar la configuración base, incluso cuando el overlay las reemplaza en el backend. Complétalas también para validar el overlay.
 

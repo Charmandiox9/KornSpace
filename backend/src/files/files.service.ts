@@ -12,7 +12,7 @@ import { Transform, type Readable } from 'node:stream';
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { PrismaService } from '../prisma/prisma.service';
-import { FILE_STORAGE_CLIENTS, type FileStorageClients, type ProcessFileMessage, type StoredFileResponse, type UploadFileResult } from './file.types';
+import { FILE_STORAGE_CLIENTS, type FileStorageClients, type ProcessFileMessage, type StoredFileResponse, type UploadFileResult, type UploadLifecycle } from './file.types';
 
 const defaultAsyncThresholdBytes = 10 * 1024 * 1024;
 const defaultMaxFileSizeBytes = 100 * 1024 * 1024;
@@ -29,6 +29,7 @@ interface FileStorageConfiguration {
 interface FileStreamMetadata {
   stream: Transform;
   checksum: () => string;
+  receivedBytes: () => number;
 }
 
 class InvalidFileBodyError extends Error {}
@@ -70,10 +71,47 @@ export class FilesService {
 
   async list(ownerId: string): Promise<StoredFileResponse[]> {
     try {
-      const files = await this.prisma.storedFile.findMany({ where: { ownerId }, orderBy: { createdAt: 'desc' } });
+      const files = await this.prisma.storedFile.findMany({ where: { ownerId, deletedAt: null }, orderBy: { createdAt: 'desc' } });
       return files.map((file) => this.toResponse(file));
     } catch {
       throw new ServiceUnavailableException('No fue posible consultar los archivos.');
+    }
+  }
+
+  async listTrash(ownerId: string): Promise<StoredFileResponse[]> {
+    const files = await this.prisma.storedFile.findMany({ where: { ownerId, deletedAt: { not: null } }, orderBy: { deletedAt: 'desc' } });
+    return files.map((file) => this.toResponse(file));
+  }
+
+  async moveToTrash(id: string, ownerId: string): Promise<void> {
+    const result = await this.prisma.storedFile.updateMany({ where: { id, ownerId, deletedAt: null }, data: { deletedAt: new Date() } });
+    if (!result.count) throw new NotFoundException('No se encontró el archivo.');
+  }
+
+  async restoreFromTrash(id: string, ownerId: string): Promise<void> {
+    const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId, deletedAt: { not: null, gt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000) } } });
+    if (!file) throw new NotFoundException('No se encontró el archivo en la papelera.');
+    const restored = await this.prisma.storedFile.updateMany({ where: { id, ownerId, deletedAt: file.deletedAt }, data: { deletedAt: null } });
+    if (!restored.count) throw new NotFoundException('El archivo ya no está en la papelera.');
+    if (file.status === 'PROCESSING') await this.requeueProcessing(id);
+  }
+
+  async permanentlyDelete(id: string, ownerId: string): Promise<void> {
+    const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId } });
+    if (!file) throw new NotFoundException('No se encontró el archivo.');
+    await this.prisma.storedFile.updateMany({ where: { id, ownerId }, data: { status: 'FAILED' } });
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.configuration.bucket, Key: file.s3Key }));
+    await this.prisma.storedFile.deleteMany({ where: { id, ownerId } });
+  }
+
+  async purgeExpiredTrash(): Promise<void> {
+    const expired = await this.prisma.storedFile.findMany({ where: { deletedAt: { lte: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000) } }, take: 50 });
+    for (const file of expired) {
+      try {
+        await this.prisma.storedFile.updateMany({ where: { id: file.id, deletedAt: { not: null } }, data: { status: 'FAILED' } });
+        await this.s3.send(new DeleteObjectCommand({ Bucket: this.configuration.bucket, Key: file.s3Key }));
+        await this.prisma.storedFile.deleteMany({ where: { id: file.id, deletedAt: { not: null } } });
+      } catch { /* Keep metadata in trash so the next sweep retries cleanup. */ }
     }
   }
 
@@ -83,11 +121,28 @@ export class FilesService {
     contentType: string,
     sizeBytes: number,
     ownerId: string,
+    lifecycle: UploadLifecycle = {},
   ): Promise<UploadFileResult> {
     const normalizedName = this.validateUpload(name, contentType, sizeBytes);
-    const id = randomUUID();
+    lifecycle.signal?.throwIfAborted();
+    const id = lifecycle.fileId ?? randomUUID();
     const s3Key = `files/${id}`;
     const streamMetadata = this.createHashingStream(source, sizeBytes);
+    const storageController = new AbortController();
+    const abort = () => {
+      source.unpipe(streamMetadata.stream);
+      if (streamMetadata.receivedBytes() === sizeBytes) {
+        // Once all bytes reached the storage stream, wait for PUT acknowledgement
+        // before compensating. Aborting that response could race a later S3 commit.
+        if (!streamMetadata.stream.writableEnded) streamMetadata.stream.end();
+      } else {
+        // The request is already being aborted; destroying with an error can emit
+        // an unhandled stream error after the storage consumer has detached.
+        streamMetadata.stream.destroy();
+        storageController.abort();
+      }
+    };
+    lifecycle.signal?.addEventListener('abort', abort, { once: true });
 
     try {
       await this.s3.send(new PutObjectCommand({
@@ -96,7 +151,9 @@ export class FilesService {
         Body: streamMetadata.stream,
         ContentLength: sizeBytes,
         ContentType: contentType.trim(),
-      }));
+      }), { abortSignal: storageController.signal });
+      lifecycle.signal?.throwIfAborted();
+      await lifecycle.beforeCommit?.();
     } catch (error: unknown) {
       await this.deleteObjectQuietly(s3Key);
       if (error instanceof InvalidFileBodyError) {
@@ -106,6 +163,8 @@ export class FilesService {
         throw new PayloadTooLargeException(`El tamaño máximo permitido es ${this.configuration.maxFileSizeBytes} bytes.`);
       }
       throw new ServiceUnavailableException('No fue posible guardar el archivo en el almacenamiento.');
+    } finally {
+      lifecycle.signal?.removeEventListener('abort', abort);
     }
 
     const asynchronous = sizeBytes > this.configuration.asyncThresholdBytes;
@@ -145,8 +204,20 @@ export class FilesService {
     return { file: this.toResponse(file), asynchronous };
   }
 
+  async cleanupUpload(fileId: string): Promise<void> {
+    // Disable downloads before deleting an object; retain FAILED metadata if cleanup must retry.
+    await this.prisma.storedFile.updateMany({ where: { id: fileId }, data: { status: 'FAILED' } });
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.configuration.bucket, Key: `files/${fileId}` }));
+    await this.prisma.storedFile.deleteMany({ where: { id: fileId } });
+  }
+
+  async requeueProcessing(fileId: string): Promise<void> {
+    const message: ProcessFileMessage = { fileId, s3Key: `files/${fileId}` };
+    await this.sqs.send(new SendMessageCommand({ QueueUrl: this.configuration.queueUrl, MessageBody: JSON.stringify(message) }));
+  }
+
   async getDownload(id: string, ownerId: string): Promise<{ file: StoredFileResponse; body: Readable }> {
-    const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId } });
+    const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId, deletedAt: null } });
     if (!file) {
       throw new NotFoundException('No se encontró el archivo solicitado.');
     }
@@ -218,8 +289,10 @@ export class FilesService {
       },
     });
     source.once('error', (error: Error) => stream.destroy(error));
+    // A transport abort may precede the SDK attaching its stream consumer.
+    stream.on('error', () => undefined);
     source.pipe(stream);
-    return { stream, checksum: () => hash.digest('hex') };
+    return { stream, checksum: () => hash.digest('hex'), receivedBytes: () => sizeBytes };
   }
 
   private async deleteObjectQuietly(key: string): Promise<void> {
@@ -234,6 +307,7 @@ export class FilesService {
     status: 'PROCESSING' | 'AVAILABLE' | 'FAILED';
     checksum: string | null;
     createdAt: Date;
+    deletedAt: Date | null;
   }): StoredFileResponse {
     return {
       id: file.id,
@@ -243,6 +317,7 @@ export class FilesService {
       status: file.status,
       checksum: file.checksum,
       createdAt: file.createdAt.toISOString(),
+      deletedAt: file.deletedAt?.toISOString() ?? null,
     };
   }
 
