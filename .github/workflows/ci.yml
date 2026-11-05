@@ -136,12 +136,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build frontend image
+      - name: Build frontend production image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: frontend/Dockerfile
-          target: development
+          target: production
           tags: kornspace-frontend:ci
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
