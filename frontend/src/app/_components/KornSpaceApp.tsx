@@ -10,6 +10,7 @@ import { isAuthenticatedUser } from '@/features/auth/is-authenticated-user';
 import { useSession } from '@/features/auth/SessionProvider';
 import { UsernameSetupPage } from '@/features/auth/UsernameSetupPage';
 import { FilesPage } from '@/features/files/FilesPage';
+import { SharedPage } from '@/features/files/SharedPage';
 import { UploadNotifications } from '@/features/files/UploadNotifications';
 import { isStoredFile } from '@/features/files/is-stored-file';
 import { authenticatedFetch, apiUrl } from '@/lib/api-client';
@@ -18,6 +19,9 @@ import { usePreferences } from '@/hooks/use-preferences';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import { getSessionDestination } from '@/features/auth/session-destination';
 import { sileo } from 'sileo';
+
+// Vistas del espacio de trabajo que comparten el shell con sidebar (todas viven bajo la ruta '/files' de sesión).
+const WORKSPACE_PATHS = ['/files', '/trash', '/shared'];
 
 function setMetaContent(attribute: 'name' | 'property', identifier: string, value: string): void {
   let element = document.head.querySelector<HTMLMetaElement>(`meta[${attribute}="${identifier}"]`);
@@ -43,6 +47,8 @@ export default function KornSpaceApp() {
   const { language, theme, toggleLanguage, toggleTheme } = usePreferences();
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [trash, setTrash] = useState<StoredFile[]>([]);
+  // Pendiente: poblar desde el endpoint de compartidos cuando exista; por ahora la vista muestra su estado vacío.
+  const sharedFiles: StoredFile[] = [];
   const { status: authStatus, user, updateUser, logout: endSession } = useSession();
   const [notice, setNotice] = useState('');
   const [username, setUsername] = useState('');
@@ -93,6 +99,16 @@ export default function KornSpaceApp() {
     }
   }
 
+  async function createFolder(name: string): Promise<void> {
+    const response = await authenticatedFetch('/api/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parentId: null }),
+    });
+    if (!response.ok) throw new Error(copy.folderCreateFailed);
+    sileo.success({ title: copy.folderCreated, duration: 4000 });
+  }
+
   useEffect(() => {
     if (authStatus !== 'authenticated') {
       refreshVersion.current += 1;
@@ -103,7 +119,7 @@ export default function KornSpaceApp() {
   }, [authStatus, user?.id]);
 
   useEffect(() => {
-    if (!route || pathname === route || (route === '/files' && pathname === '/trash')) return;
+    if (!route || pathname === route || (route === '/files' && WORKSPACE_PATHS.includes(pathname))) return;
     router.replace(route);
   }, [pathname, route, router]);
 
@@ -253,6 +269,14 @@ export default function KornSpaceApp() {
 
   return (
     <div className={appShellClass}>
+      {route === '/files' && user && (
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-90 focus:rounded-xl focus:border focus:border-line focus:bg-surface focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-ink focus:shadow-panel"
+        >
+          {copy.skipToContent}
+        </a>
+      )}
       <UploadNotifications queue={queue} copy={copy} onCancelUpload={cancelItem} onRetryUpload={retryItem} />
       {route === '/files' && user && (
         <Sidebar
@@ -263,10 +287,9 @@ export default function KornSpaceApp() {
           onLanguageChange={toggleLanguage}
           onThemeChange={toggleTheme}
           onLogout={() => void logout()}
-          pathname={pathname}
         />
       )}
-      <main className="grid min-h-0 grid-rows-[1fr_auto] justify-items-center px-[clamp(20px,4vw,56px)] pt-8 pb-[22px] max-[760px]:px-4 max-[760px]:pt-6 max-[760px]:pb-[18px] max-[420px]:px-2.5">
+      <main id="main-content" tabIndex={-1} className="focus:outline-none grid min-h-0 grid-rows-[1fr_auto] justify-items-center px-[clamp(20px,4vw,56px)] pt-8 pb-[22px] max-[760px]:px-4 max-[760px]:pt-6 max-[760px]:pb-[18px] max-[420px]:px-2.5">
         {route === null ? (
           <section className="relative flex w-full max-w-[620px] self-center flex-col items-center overflow-hidden rounded-[20px] border border-line bg-surface px-[clamp(22px,7vw,64px)] py-[clamp(34px,7vw,68px)] text-center shadow-panel justify-self-center before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-linear-to-r before:from-accent before:to-secondary" aria-live="polite"><p>{copy.loginChecking}</p></section>
         ) : route === '/login' ? (
@@ -288,6 +311,8 @@ export default function KornSpaceApp() {
             onUsernameChange={setUsername}
             onSubmit={(event) => void saveUsername(event)}
           />
+        ) : pathname === '/shared' ? (
+          <SharedPage copy={copy} files={sharedFiles} notice={notice} />
         ) : (
           <FilesPage
             copy={copy}
@@ -300,6 +325,7 @@ export default function KornSpaceApp() {
             onMoveToTrash={(file) => void mutateFile(`/api/files/${encodeURIComponent(file.id)}/trash`, 'POST')}
             onDeletePermanent={(id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/permanent`, 'DELETE')}
             onRestore={(id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/restore`, 'POST')}
+            onCreateFolder={createFolder}
           />
         )}
         <footer className="text-center text-[11px] text-muted">{copy.footer}</footer>
