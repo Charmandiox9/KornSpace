@@ -10,9 +10,9 @@ services:
       NEXT_PUBLIC_API_WS_URL: ${NEXT_PUBLIC_API_WS_URL:-}
     volumes:
       - .:/workspace
-      - workspace_node_modules_v2:/workspace/node_modules
-      - frontend_node_modules:/workspace/frontend/node_modules
-      - backend_node_modules_prisma_v2:/workspace/backend/node_modules
+      - workspace_node_modules_v3:/workspace/node_modules
+      - frontend_node_modules_v3:/workspace/frontend/node_modules
+      - backend_node_modules_prisma_v3:/workspace/backend/node_modules
     working_dir: /workspace/frontend
     expose:
       - "3001"
@@ -50,9 +50,9 @@ services:
       FILE_MAX_SIZE_BYTES: 104857600
     volumes:
       - .:/workspace
-      - workspace_node_modules_v2:/workspace/node_modules
-      - frontend_node_modules:/workspace/frontend/node_modules
-      - backend_node_modules_prisma_v2:/workspace/backend/node_modules
+      - workspace_node_modules_v3:/workspace/node_modules
+      - frontend_node_modules_v3:/workspace/frontend/node_modules
+      - backend_node_modules_prisma_v3:/workspace/backend/node_modules
     working_dir: /workspace/backend
     expose:
       - "3000"
@@ -128,8 +128,8 @@ services:
     restart: unless-stopped
 
 volumes:
-  workspace_node_modules_v2:
-  frontend_node_modules:
-  backend_node_modules_prisma_v2:
+  workspace_node_modules_v3:
+  frontend_node_modules_v3:
+  backend_node_modules_prisma_v3:
   redis_data:
   localstack_data:
