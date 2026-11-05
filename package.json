@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.31.0",
   "scripts": {
+    "dev": "pnpm prisma:generate && pnpm --parallel --filter kornspace-frontend --filter kornspace-backend dev",
     "dev:frontend": "pnpm --filter kornspace-frontend dev",
     "dev:backend": "pnpm --filter kornspace-backend start:dev",
     "prisma:generate": "pnpm --filter kornspace-backend prisma:generate",

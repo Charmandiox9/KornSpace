@@ -1,4 +1,4 @@
-FROM node:22-alpine AS development
+FROM node:22-alpine AS build
 RUN corepack enable && corepack prepare pnpm@10.31.0 --activate
 WORKDIR /workspace
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
@@ -8,16 +8,23 @@ COPY patches patches
 RUN pnpm install --frozen-lockfile
 COPY frontend frontend
 COPY backend backend
-RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" DATABASE_URL_UNPOOLED="postgresql://build:build@localhost:5432/build" pnpm --filter kornspace-backend prisma:generate
+RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" DATABASE_URL_UNPOOLED="postgresql://build:build@localhost:5432/build" pnpm --filter kornspace-backend build
+
+FROM node:22-alpine AS production
+RUN corepack enable && corepack prepare pnpm@10.31.0 --activate
+ENV NODE_ENV=production
+WORKDIR /workspace
+COPY --from=build /workspace/node_modules ./node_modules
+COPY --from=build /workspace/package.json /workspace/pnpm-workspace.yaml ./
+COPY --from=build /workspace/backend/node_modules ./backend/node_modules
+COPY --from=build /workspace/backend/package.json ./backend/package.json
+COPY --from=build /workspace/backend/dist ./backend/dist
+COPY --from=build /workspace/backend/prisma ./backend/prisma
+COPY --from=build /workspace/backend/scripts ./backend/scripts
 COPY backend/docker-entrypoint.sh /usr/local/bin/kornspace-backend-entrypoint
 RUN sed -i 's/\r$//' /usr/local/bin/kornspace-backend-entrypoint \
     && chmod +x /usr/local/bin/kornspace-backend-entrypoint
 WORKDIR /workspace/backend
 EXPOSE 3000
 ENTRYPOINT ["/usr/local/bin/kornspace-backend-entrypoint"]
-CMD ["pnpm", "start:dev"]
-
-FROM development AS production
-ENV NODE_ENV=production
-RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" DATABASE_URL_UNPOOLED="postgresql://build:build@localhost:5432/build" pnpm --filter kornspace-backend build
 CMD ["pnpm", "start:prod"]

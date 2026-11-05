@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "dev": "pnpm start:dev",
     "build": "node scripts/prisma-with-root-env.cjs generate && nest build",
     "start": "nest start",
     "start:dev": "node --env-file=../.env ./node_modules/@nestjs/cli/bin/nest.js start --watch",
