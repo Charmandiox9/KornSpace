@@ -20,7 +20,36 @@ export interface SidebarProps {
   onLanguageChange: () => void;
   onThemeChange: () => void;
   onLogout: () => void;
-  pathname: string;
+}
+
+export interface LocationItem {
+  /** `null` representa la raíz. */
+  id: string | null;
+  name: string;
+}
+
+export interface WorkspaceHeaderProps {
+  copy: TranslationCatalog;
+  /** De la raíz a la carpeta actual; el último elemento es la ubicación actual. */
+  location: LocationItem[];
+  onNavigate?: (folderId: string | null) => void;
+  /** Si no se pasa, el botón de subir no se muestra. */
+  onUploadClick?: () => void;
+  /** Si no se pasa, el botón de crear carpeta no se muestra. */
+  onCreateFolder?: () => void;
+}
+
+export interface CreateFolderDialogProps {
+  copy: TranslationCatalog;
+  onClose: () => void;
+  /** Debe lanzar un `Error` con un mensaje ya traducido si falla; el diálogo lo muestra. */
+  onSubmit: (name: string) => Promise<void>;
+}
+
+export interface SharedPageProps {
+  copy: TranslationCatalog;
+  files: StoredFile[];
+  notice: string;
 }
 
 export interface PublicLayoutProps {
@@ -80,6 +109,8 @@ export interface FilesPageProps {
   onMoveToTrash: (file: StoredFile) => void;
   onDeletePermanent: (fileId: string) => void;
   onRestore: (fileId: string) => void;
+  /** Si no se pasa, la acción «Nueva carpeta» no se muestra. */
+  onCreateFolder?: (name: string) => Promise<void>;
 }
 
 export interface SessionProviderProps {

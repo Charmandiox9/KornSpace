@@ -1,5 +1,8 @@
+import { CreateFolderDialog } from '@/components/CreateFolderDialog';
+import { WorkspaceHeader, WORKSPACE_TITLE_ID } from '@/components/WorkspaceHeader';
 import { formatFileSize } from '@/lib/format-file-size';
 import type { FilesPageProps } from '@/types';
+import Link from 'next/link';
 import { useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 
 export function FilesPage({
@@ -12,6 +15,7 @@ export function FilesPage({
   onMoveToTrash,
   onDeletePermanent,
   onRestore,
+  onCreateFolder,
   initialTrash = false,
 }: FilesPageProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -19,6 +23,7 @@ export function FilesPage({
   const [isDragging, setIsDragging] = useState(false);
   const showTrash = initialTrash;
   const [fileToDelete, setFileToDelete] = useState<(typeof files)[number] | null>(null);
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [fileToConfirmDelete, setFileToConfirmDelete] = useState<(typeof files)[number] | null>(null);
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -42,14 +47,13 @@ export function FilesPage({
   }
 
   return (
-    <section className="w-full max-w-[980px] self-center rounded-[20px] border border-line bg-surface p-[clamp(24px,5vw,48px)] shadow-panel max-[760px]:px-[18px] max-[760px]:py-6" aria-labelledby="welcome-title">
-      {!showTrash && <header className="flex items-start justify-between gap-6 border-b border-line pb-[30px] [&_h1]:text-[clamp(30px,4vw,42px)] [&_p:first-child]:mb-3.5 [&_p:last-child]:mt-3 [&_p:last-child]:max-w-[520px] max-[760px]:flex-col max-[760px]:gap-[18px]">
-        <div>
-          <p className="m-0 mb-5 text-[10px] font-bold tracking-[0.14em] text-accent uppercase">{copy.eyebrow}</p>
-          <h1 className="m-0 max-w-[500px] text-[clamp(34px,6vw,50px)] font-semibold tracking-[-0.045em] leading-[1.08]" id="welcome-title">{copy.headline}</h1>
-          <p className="mt-[21px] max-w-[410px] text-[15px] leading-[1.75] text-muted">{copy.description}</p>
-        </div>
-      </header>}
+    <section className="w-full min-w-0 max-w-[980px] self-center rounded-[20px] border border-line bg-surface p-[clamp(24px,5vw,48px)] shadow-panel max-[760px]:px-[18px] max-[760px]:py-6" aria-labelledby={WORKSPACE_TITLE_ID}>
+      <WorkspaceHeader
+        copy={copy}
+        location={[{ id: null, name: showTrash ? copy.trashHeading : copy.myDrive }]}
+        onUploadClick={showTrash ? undefined : () => fileInputRef.current?.click()}
+        onCreateFolder={showTrash || !onCreateFolder ? undefined : () => setIsCreatingFolder(true)}
+      />
       {!showTrash && <div
         role="region"
         aria-label={copy.uploadZone}
@@ -91,9 +95,9 @@ export function FilesPage({
       <section className="pt-[26px] [&_h2]:mb-3.5 [&_h2]:text-[17px] [&_h2]:font-semibold [&_h2]:tracking-tight" aria-labelledby="files-heading">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 id="files-heading" className="m-0">{showTrash ? copy.trashHeading : copy.filesHeading}</h2>
-          <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" onClick={() => window.location.assign(showTrash ? '/files' : '/trash')}>
+          <Link href={showTrash ? '/files' : '/trash'} className="shrink-0 text-xs font-semibold text-accent no-underline hover:underline">
             {showTrash ? copy.filesHeading : `${copy.trashHeading} (${trash.length})`}
-          </button>
+          </Link>
         </div>
         {notice && <p className="m-0 mb-3 rounded-xl border border-line bg-raised px-4 py-3.5 text-[13px] leading-[1.6] text-muted" role="status">{notice}</p>}
         {(showTrash ? trash : files).length === 0 ? (
@@ -101,8 +105,8 @@ export function FilesPage({
         ) : (
           <ul className="m-0 grid list-none gap-2 p-0">
             {(showTrash ? trash : files).map((file) => (
-              <li className="flex min-h-[68px] items-center justify-between gap-4 rounded-xl border border-line bg-raised px-[15px] py-3" key={file.id}>
-                <div className="grid min-w-0 gap-[5px]">
+              <li className="flex min-h-[68px] flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-line bg-raised px-[15px] py-3" key={file.id}>
+                <div className="grid min-w-0 flex-1 basis-40 gap-[5px]">
                   <span className="truncate text-[13px] font-semibold" title={file.name}>{file.name}</span>
                   <span className="text-[11px] text-muted">
                     {formatFileSize(file.sizeBytes)} · {file.status === 'AVAILABLE' ? copy.fileReady : file.status === 'FAILED' ? copy.fileFailed : copy.fileProcessing}
@@ -121,6 +125,9 @@ export function FilesPage({
           </ul>
         )}
       </section>
+      {isCreatingFolder && onCreateFolder && (
+        <CreateFolderDialog copy={copy} onClose={() => setIsCreatingFolder(false)} onSubmit={onCreateFolder} />
+      )}
       {fileToDelete && (
         <div className="fixed inset-0 z-80 grid place-items-center bg-black/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setFileToDelete(null); }}>
           <section role="dialog" aria-modal="true" aria-labelledby="delete-choice-title" className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-2xl">
