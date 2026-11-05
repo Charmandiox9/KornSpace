@@ -4,8 +4,8 @@
 
 | Servicio | Función |
 | --- | --- |
-| `frontend` | Vite de desarrollo; proxy hacia el backend. |
-| `backend` | NestJS con recarga; aplica migraciones antes de arrancar. |
+| `frontend` | Next.js compilado en modo standalone. |
+| `backend` | NestJS compilado; aplica migraciones antes de arrancar. |
 | `redis` | Redis 7 con persistencia AOF. |
 | `localstack` | Emula S3 y SQS en el puerto `4566`. |
 | `terraform` | Espera LocalStack saludable y aprovisiona los recursos. |
@@ -26,7 +26,7 @@ docker compose exec localstack awslocal sqs list-queues
 
 ## Overlay de producción
 
-`docker-compose.production.yml` agrega PostgreSQL 17 con el volumen persistente `postgres_data` y cambia el backend a la imagen compilada y `NODE_ENV=production`. No cambia Nginx, LocalStack ni Vite: el frontend sigue en desarrollo y los binarios siguen en LocalStack. No es un despliegue público de producción completo.
+`docker-compose.production.yml` agrega PostgreSQL 17 con el volumen persistente `postgres_data`; frontend y backend ya ejecutan imágenes de producción en el Compose base. Los archivos siguen en LocalStack. No es un despliegue público de producción completo.
 
 ## Ciclo de vida
 
@@ -45,7 +45,12 @@ Los modos publican los mismos puertos; detén el modo activo con su configuraci�
 
 ## Volúmenes
 
-- `workspace_node_modules_v2`, `frontend_node_modules`, `backend_node_modules_prisma_v2`: dependencias de pnpm.
 - `redis_data`: datos persistentes de Redis.
 - `localstack_data`: datos persistentes de LocalStack.
 - `postgres_data`: datos PostgreSQL del overlay.
+
+## Imágenes y desarrollo local
+
+Frontend y backend no montan código ni volúmenes de `node_modules`. Las dependencias, el cliente Prisma y el código compilado están incluidos en las imágenes. Tras cambiar código, dependencias o esquema Prisma (con su migración), ejecuta `docker compose up --build -d`. Reiniciar un contenedor no reconstruye su imagen.
+
+Para desarrollo, ejecuta `pnpm install` y `pnpm dev` desde la raíz. Este comando genera Prisma y arranca Next.js y NestJS con recarga automática. Puedes levantar la infraestructura con `docker compose up -d redis terraform`. Configura `.env` con los endpoints accesibles desde el equipo (`REDIS_HOST=localhost`, S3/SQS en `http://localhost:4566`, URL de la cola accesible desde el equipo y `FRONTEND_ORIGIN=http://localhost:3001`).
