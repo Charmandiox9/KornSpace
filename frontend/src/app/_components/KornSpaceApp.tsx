@@ -1,6 +1,6 @@
 'use client';
 
-import type { FileStatusEvent, StoredFile, StoredFolder } from '@/types';
+import type { FileStatusEvent, StoredFile, StoredFolder, FilesPageProps, RestoreConflict } from '@/types';
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -11,6 +11,7 @@ import { useSession } from '@/features/auth/SessionProvider';
 import { UsernameSetupPage } from '@/features/auth/UsernameSetupPage';
 import { FilesPage } from '@/features/files/FilesPage';
 import { SharedPage } from '@/features/files/SharedPage';
+import { FileConflictDialog } from '@/features/files/FileConflictDialog';
 import { UploadNotifications } from '@/features/files/UploadNotifications';
 import { isStoredFile } from '@/features/files/is-stored-file';
 import { isFolderContents, isStoredFolder } from '@/features/files/is-folder-contents';
@@ -46,16 +47,17 @@ function setCanonicalUrl(href: string): void {
 
 export default function KornSpaceApp() {
   const { language, theme, toggleLanguage, toggleTheme } = usePreferences();
+  const [isLoadingFiles, setIsLoadingFiles] = useState(true);
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [folders, setFolders] = useState<StoredFolder[]>([]);
   const [currentFolder, setCurrentFolder] = useState<StoredFolder | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<StoredFolder[]>([]);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [trash, setTrash] = useState<StoredFile[]>([]);
-  // Pendiente: poblar desde el endpoint de compartidos cuando exista; por ahora la vista muestra su estado vacío.
   const sharedFiles: StoredFile[] = [];
   const { status: authStatus, user, updateUser, logout: endSession } = useSession();
   const [notice, setNotice] = useState('');
+  const [restoreConflict, setRestoreConflict] = useState<RestoreConflict | null>(null);
   const [username, setUsername] = useState('');
   const [isSavingUsername, setIsSavingUsername] = useState(false);
   const pathname = usePathname() ?? '/login';
@@ -67,6 +69,8 @@ export default function KornSpaceApp() {
   const refreshFiles = useCallback(async (includeTrash = true, folderId: string | null = currentFolderId): Promise<void> => {
     if (!user?.id) return;
     const version = ++refreshVersion.current;
+    setIsLoadingFiles(true);
+    setNotice('');
     try {
       const folderQuery = folderId ? `?parentId=${encodeURIComponent(folderId)}` : '';
       const filesResponse = await authenticatedFetch(`/api/folders${folderQuery}`);
@@ -89,16 +93,25 @@ export default function KornSpaceApp() {
       }
     } catch {
       if (version === refreshVersion.current) setNotice(copy.loadError);
+    } finally {
+      if (version === refreshVersion.current) setIsLoadingFiles(false);
     }
   }, [copy.loadError, currentFolderId, user?.id]);
-  const { queue, enqueue, cancelItem, retryItem } = useUploadQueue(() => refreshFiles(false), user?.id);
+  const { queue, enqueue, cancelItem, retryItem, conflict, resolveConflict } = useUploadQueue(() => refreshFiles(false), user?.id);
   async function mutateFile(path: string, method: 'POST' | 'DELETE'): Promise<void> {
     try {
       const response = await authenticatedFetch(path, { method });
-      if (!response.ok) throw new Error(copy.loadError);
+      if (response.status === 409) {
+        const conflictBody: unknown = await response.json();
+        if (path.split('?')[0].endsWith('/restore') && typeof conflictBody === 'object' && conflictBody !== null && 'conflictId' in conflictBody && typeof conflictBody.conflictId === 'string') {
+          setRestoreConflict({ path: path.split('?')[0], name: 'name' in conflictBody && typeof conflictBody.name === 'string' ? conflictBody.name : '', conflictId: conflictBody.conflictId }); return;
+        }
+        throw new Error(copy.fileNameConflict);
+      }
+      if (!response.ok) throw new Error(copy.fileActionFailed);
       setNotice('');
-      const title = path.endsWith('/trash') ? copy.fileMovedToTrash
-        : path.endsWith('/restore') ? copy.fileRestored : copy.filePermanentlyDeleted;
+      const title = path.split('?')[0].endsWith('/trash') ? copy.fileMovedToTrash
+        : path.split('?')[0].endsWith('/restore') ? copy.fileRestored : copy.filePermanentlyDeleted;
       sileo.success({ title, duration: 4000 });
       await refreshFiles();
     } catch (error: unknown) {
@@ -186,8 +199,11 @@ export default function KornSpaceApp() {
   }
 
   function navigateToFolder(folderId: string | null): void {
+    if (pathname === '/files' && folderId === currentFolderId) return;
     refreshVersion.current += 1;
+    setIsLoadingFiles(true);
     setCurrentFolderId(folderId);
+    router.push('/files' + (folderId ? '?folderId=' + encodeURIComponent(folderId) : ''), { scroll: false });
   }
 
   useEffect(() => {
@@ -348,9 +364,29 @@ export default function KornSpaceApp() {
     setCanonicalUrl(canonicalUrl);
   }, [copy, language, pathname, route]);
 
+  useEffect(() => {
+    const readLocation = () => {
+      if (pathname === '/files') setCurrentFolderId(new URLSearchParams(window.location.search).get('folderId'));
+      else if (pathname === '/home' || pathname === '/shared') setCurrentFolderId(null);
+    };
+    readLocation();
+    window.addEventListener('popstate', readLocation);
+    return () => window.removeEventListener('popstate', readLocation);
+  }, [pathname]);
+
   const appShellClass = route === '/files'
     ? 'grid min-h-svh grid-cols-[256px_minmax(0,1fr)] bg-linear-to-br from-page to-raised max-[760px]:grid-cols-[78px_minmax(0,1fr)] max-[420px]:grid-cols-[62px_minmax(0,1fr)]'
     : 'flex min-h-svh flex-col bg-linear-to-br from-page to-raised [&>main]:min-h-screen [&>main]:w-full [&>main]:flex-1';
+
+  const filePageProps: FilesPageProps = {
+    copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, isLoading: isLoadingFiles,
+    initialTrash: pathname === '/trash', notice, apiUrl, onUpload: enqueue,
+    onUploadDirectory: (selectedFiles) => void uploadDirectory(selectedFiles), onNavigate: navigateToFolder,
+    onMoveToTrash: (file) => void mutateFile(`/api/files/${encodeURIComponent(file.id)}/trash`, 'POST'),
+    onDeletePermanent: (id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/permanent`, 'DELETE'),
+    onRestore: (id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/restore`, 'POST'),
+    onCreateFolder: createFolder, onChanged: () => refreshFiles(),
+  };
 
   return (
     <div className={appShellClass}>
@@ -362,6 +398,8 @@ export default function KornSpaceApp() {
           {copy.skipToContent}
         </a>
       )}
+      {!conflict && restoreConflict && <FileConflictDialog name={restoreConflict.name} copy={copy} onResolve={(replace) => { const pending = restoreConflict; setRestoreConflict(null); if (replace) void mutateFile(pending.path + '?replaceFileId=' + encodeURIComponent(pending.conflictId), 'POST'); }} />}
+      {conflict && <FileConflictDialog key={conflict.operationId} name={conflict.name} copy={copy} onResolve={resolveConflict} />}
       <UploadNotifications queue={queue} copy={copy} onCancelUpload={cancelItem} onRetryUpload={retryItem} />
       {route === '/files' && user && (
         <Sidebar
@@ -374,7 +412,7 @@ export default function KornSpaceApp() {
           onLogout={() => void logout()}
         />
       )}
-      <main id="main-content" tabIndex={-1} className="focus:outline-none grid min-h-0 grid-rows-[1fr_auto] justify-items-center px-[clamp(20px,4vw,56px)] pt-8 pb-[22px] max-[760px]:px-4 max-[760px]:pt-6 max-[760px]:pb-[18px] max-[420px]:px-2.5">
+      <main id="main-content" tabIndex={-1} className={`focus:outline-none min-w-0 ${route === "/files" ? "flex flex-col px-5 py-6 lg:px-8 max-[760px]:px-3" : "grid min-h-svh grid-rows-[1fr_auto] justify-items-center px-5 py-8"}`}>
         {route === null ? (
           <section className="relative flex w-full max-w-[620px] self-center flex-col items-center overflow-hidden rounded-[20px] border border-line bg-surface px-[clamp(22px,7vw,64px)] py-[clamp(34px,7vw,68px)] text-center shadow-panel justify-self-center before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-linear-to-r before:from-accent before:to-secondary" aria-live="polite"><p>{copy.loginChecking}</p></section>
         ) : route === '/login' ? (
@@ -399,27 +437,9 @@ export default function KornSpaceApp() {
         ) : pathname === '/shared' ? (
           <SharedPage copy={copy} files={sharedFiles} notice={notice} />
         ) : (
-          <FilesPage
-            copy={copy}
-            files={files}
-            folders={folders}
-            currentFolder={currentFolder}
-            breadcrumbs={breadcrumbs}
-            currentFolderId={currentFolderId}
-            trash={trash}
-            initialTrash={pathname === '/trash'}
-            notice={notice}
-            apiUrl={apiUrl}
-            onUpload={enqueue}
-            onUploadDirectory={(selectedFiles) => void uploadDirectory(selectedFiles)}
-            onNavigate={navigateToFolder}
-            onMoveToTrash={(file) => void mutateFile(`/api/files/${encodeURIComponent(file.id)}/trash`, 'POST')}
-            onDeletePermanent={(id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/permanent`, 'DELETE')}
-            onRestore={(id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/restore`, 'POST')}
-            onCreateFolder={createFolder}
-          />
+          <FilesPage {...filePageProps} />
         )}
-        <footer className="text-center text-[11px] text-muted">{copy.footer}</footer>
+        <footer className="mt-auto pt-6 text-center text-[11px] text-muted">{copy.footer}</footer>
       </main>
     </div>
   );

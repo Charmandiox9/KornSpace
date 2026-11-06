@@ -1,4 +1,11 @@
 export interface StoredFile {
+  updatedAt?: string;
+  ownerId?: string | null;
+  ownerName?: string;
+  folderId?: string | null;
+  folderName?: string | null;
+  permission?: 'OWNER' | 'READER' | 'EDITOR';
+  openedAt?: string | null;
   id: string;
   name: string;
   contentType: string;
@@ -16,6 +23,18 @@ export interface StoredFolder {
   parentId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface FileDropOptions {
+  folders: StoredFolder[];
+  currentFolderId: string | null;
+  enabled: boolean;
+  onUpload: (files: File[], folderId: string | null) => void;
+}
+
+export interface FileDropState {
+  isDragging: boolean;
+  targetFolderId: string | null;
 }
 
 export interface FolderContents {
@@ -68,7 +87,7 @@ export interface UploadJob {
 }
 
 export interface UploadQueueOptions {
-  upload: (file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string, folderId: string | null) => Promise<UploadResult>;
+  upload: (file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string, folderId: string | null) => Promise<UploadResult | 'cancelled'>;
   cancelUpload: (operationId: string) => Promise<CancellationResult>;
   onUploaded: () => Promise<void>;
   concurrency?: number;
@@ -85,8 +104,18 @@ export interface UploadQueue {
 }
 
 export interface UploadQueueControls {
+  conflict: UploadConflict | null;
+  resolveConflict: (replace: boolean) => void;
   queue: UploadQueue;
   enqueue: (files: File[], folderId?: string | null) => void;
   cancelItem: (id: string) => void;
   retryItem: (id: string) => void;
 }
+
+export interface UploadConflict {
+  operationId: string;
+  name: string;
+  conflictId: string;
+}
+
+export interface RestoreConflict { path: string; name: string; conflictId: string; }

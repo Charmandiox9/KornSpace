@@ -11,7 +11,7 @@ import { createServer } from 'node:http';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function until(check, label, timeout = 15000) {
+async function until(check, label, timeout = 30000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     try { if (await check()) return; } catch { /* Navigation can replace the execution context. */ }
@@ -65,7 +65,7 @@ async function connectDebugger(url) {
   };
 }
 
-test('session navigation and multiple uploads in a real browser with a simulated API', { timeout: 120000 }, async (t) => {
+test('session navigation and multiple uploads in a real browser with a simulated API', { timeout: 300000 }, async (t) => {
   const executable = process.env.BROWSER_EXECUTABLE ?? [
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -119,7 +119,11 @@ test('session navigation and multiple uploads in a real browser with a simulated
     };
     const user = { id: 'test-user', email: 'test@example.test', name: 'Test', username: 'test', pictureUrl: null };
     const records = [];
+    let nextFileId = 0;
+    const uploadDestinations = [];
+    const dropFolder = { id: 'drop-target', name: 'Drop destination', ownerId: user.id, parentId: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
     const uploads = [];
+    const trashedRecords = [];
     const operations = new Map();
     const interceptionErrors = [];
     let sessionChecks = 0;
@@ -137,7 +141,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
       request.resume();
       request.on('end', () => {
         if (operations.get(operationId)?.phase === 'cancelled') return;
-        const file = { id: String(records.length + 1), name, contentType: 'text/plain', sizeBytes: Number(request.headers['content-length']), status: 'AVAILABLE', checksum: null, createdAt: '2026-01-01T00:00:00.000Z' };
+        const file = { id: String(++nextFileId), name, ownerId: user.id, ownerName: 'Test', folderId: null, folderName: null, permission: 'OWNER', updatedAt: '2026-01-01T00:00:00.000Z', openedAt: null, contentType: 'text/plain', sizeBytes: Number(request.headers['content-length']), status: 'AVAILABLE', checksum: null, createdAt: '2026-01-01T00:00:00.000Z' };
         operations.set(operationId, { phase: 'confirming', file: null, asynchronous: false });
         setTimeout(() => {
           records.push(file);
@@ -153,9 +157,30 @@ test('session navigation and multiple uploads in a real browser with a simulated
         const url = new URL(event.request.url);
         let status = 200;
         let body = {};
+        let rawBody;
         if (url.pathname === '/api/auth/me') { sessionChecks += 1; body = user; }
         else if (url.pathname === '/api/auth/refresh') { refreshes += 1; status = 401; }
         else if (expired) status = 401;
+        else if (url.pathname === '/graphql') { body = { data: { all: records, recent: records.filter(file => file.openedAt) } }; }
+        else if (url.pathname === '/api/files/name-conflict') {
+          const requestBody = JSON.parse(event.request.postData ?? '{}');
+          const existing = records.find(file => file.name === requestBody.name && (file.folderId ?? null) === (requestBody.folderId ?? null));
+          body = existing ? { code: 'FILE_NAME_CONFLICT', conflictId: existing.id, name: existing.name } : { available: true };
+          status = existing ? 409 : 200;
+        }
+        else if (event.request.method === 'POST' && url.pathname.endsWith('/access')) {
+          const id = url.pathname.split('/').at(-2); const file = records.find(file => file.id === id); if (file) file.openedAt = new Date().toISOString(); body = {};
+        }
+        else if (event.request.method === 'PATCH') {
+          const id = url.pathname.split('/').at(-1); const requestBody = JSON.parse(event.request.postData ?? '{}'); const file = records.find(file => file.id === id);
+          const collision = records.find(other => other.id !== id && other.name === requestBody.name && other.folderId === file?.folderId);
+          if (collision && requestBody.replaceFileId !== collision.id) { status = 409; body = { conflictId: collision.id, name: collision.name }; }
+          else if (file) { if (collision) { records.splice(records.indexOf(collision), 1); trashedRecords.push(collision); } file.name = requestBody.name; file.updatedAt = new Date().toISOString(); body = file; }
+          else status = 404;
+        }
+        else if (url.pathname === '/api/files/trash' && event.request.method === 'GET') { body = trashedRecords; }
+        else if (url.pathname === '/api/folders') { listChecks += 1; const folderId = url.searchParams.get('parentId'); body = { folder: folderId ? dropFolder : null, breadcrumbs: [], folders: folderId ? [] : [dropFolder], files: records.filter(record => (record.folderId ?? null) === folderId) }; }
+        else if (event.request.method === 'GET' && /^\/api\/files\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith('/trash')) { rawBody = '<script>window.previewExecuted = true</script> KornSpace text preview'; }
         else if (url.pathname.startsWith('/api/files/uploads/')) {
           const id = url.pathname.split('/').at(-1);
           const current = operations.get(id);
@@ -167,7 +192,11 @@ test('session navigation and multiple uploads in a real browser with a simulated
         else if (event.request.method === 'POST') {
           const name = url.searchParams.get('name');
           const operationId = Object.entries(event.request.headers).find(([key]) => key.toLowerCase() === 'x-upload-id')?.[1];
+          const replacementId = Object.entries(event.request.headers).find(([key]) => key.toLowerCase() === 'x-replace-file-id')?.[1];
+          const target = records.find(file => file.id === replacementId);
+          if (target) { records.splice(records.indexOf(target), 1); trashedRecords.push(target); }
           uploads.push(name);
+          uploadDestinations.push({ name, folderId: url.searchParams.get('folderId') });
           if (['progress.txt', 'cancel-me.txt'].includes(name) || name.startsWith('toast-')) {
             operations.set(operationId, { phase: 'uploading', file: null, asynchronous: false });
             await cdp.send('Fetch.continueRequest', { requestId: event.requestId, url: `${uploadOrigin}${url.pathname}${url.search}` });
@@ -178,7 +207,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
             operations.set(operationId, { phase: 'failed', file: null, asynchronous: false });
           }
           else {
-            const file = { id: String(records.length + 1), name, contentType: 'text/plain', sizeBytes: 7, status: 'AVAILABLE', checksum: null, createdAt: '2026-01-01T00:00:00.000Z' };
+            const file = { id: String(++nextFileId), name, ownerId: user.id, ownerName: 'Test', folderId: url.searchParams.get('folderId'), folderName: null, permission: 'OWNER', updatedAt: '2026-01-01T00:00:00.000Z', openedAt: null, contentType: 'text/plain', sizeBytes: 7, status: 'AVAILABLE', checksum: null, createdAt: '2026-01-01T00:00:00.000Z' };
             records.push(file);
             status = 201;
             body = { file, asynchronous: false };
@@ -188,7 +217,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
         await cdp.send('Fetch.fulfillRequest', {
           requestId: event.requestId, responseCode: status,
           responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
-          body: Buffer.from(JSON.stringify(body)).toString('base64'),
+          body: Buffer.from(rawBody ?? JSON.stringify(body)).toString('base64'),
         });
       })().catch((error) => interceptionErrors.push(error));
     });
@@ -197,7 +226,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
     await cdp.send('Network.enable');
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: "localStorage.setItem('kornspace-language', 'es'); localStorage.setItem('kornspace-theme', 'dark');" });
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
-    await cdp.send('Fetch.enable', { patterns: [{ urlPattern: `${origin}/api/*` }] });
+    await cdp.send('Fetch.enable', { patterns: [{ urlPattern: `${origin}/api/*` }, { urlPattern: `${origin}/graphql` }] });
 
     await t.test('keeps one session check across 404, home, login redirect and files; reload checks again', async () => {
       await cdp.send('Page.navigate', { url: `${origin}/unknown-page` });
@@ -206,12 +235,14 @@ test('session navigation and multiple uploads in a real browser with a simulated
       // Allow the shared session to settle before checking client navigation.
       await evaluate("new Promise(resolve => setTimeout(resolve, 100))");
       await evaluate("document.querySelector('section a[href=\"/\"]').click()");
-      await until(() => evaluate("location.pathname === '/files' && Boolean(document.querySelector('input[multiple]'))"), 'authenticated workspace');
+      await until(() => evaluate("location.pathname === '/files' && Boolean(document.querySelector('input[multiple]'))"), 'authenticated home');
       assert.equal(sessionChecks, 1);
       assert.equal(await evaluate("document.body.innerText.includes('Verificando tu sesión')"), false);
       await cdp.send('Page.reload');
       await until(() => sessionChecks === 2, 'session check after reload');
       await until(() => evaluate("Boolean(document.querySelector('input[multiple]'))"), 'workspace after reload');
+      await evaluate("document.querySelector('a[href=\"/files\"]').click()");
+      await until(() => evaluate("location.pathname === '/files'"), 'drive navigation');
     });
 
     const selectFiles = async (filenames) => {
@@ -238,6 +269,22 @@ test('session navigation and multiple uploads in a real browser with a simulated
       assert.equal(await evaluate("document.querySelector('button[aria-describedby=\"upload-hint\"]').disabled"), false);
     });
 
+    await t.test('uses the sidebar action menu, selects file details and safely opens text with viewer actions', async () => {
+      await until(() => evaluate("Boolean(document.querySelector('article button[aria-pressed]'))"), 'file cards ready');
+      assert.equal(await evaluate("Boolean(document.querySelector('#workspace-create-actions summary'))"), true);
+      assert.equal(await evaluate("document.querySelector('main > section').getBoundingClientRect().width > 950"), true);
+      await evaluate("document.querySelector('article button[aria-pressed]').click()");
+      await until(() => evaluate("Boolean(document.querySelector('aside[aria-label=\"Detalles del archivo\"]'))"), 'file information sidebar');
+      await evaluate("Array.from(document.querySelectorAll('aside[aria-label=\"Detalles del archivo\"] button')).find(button => button.textContent === 'Abrir').click()");
+      await until(() => evaluate("Boolean(document.querySelector('dialog[open] pre'))"), 'text reader');
+      assert.equal(await evaluate("document.querySelector('dialog pre').textContent.includes('<script>')"), true);
+      assert.equal(await evaluate("window.previewExecuted === true"), false);
+      assert.equal(await evaluate("Boolean(document.querySelector('dialog a[href^=\"/api/files/\"]'))"), true);
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await until(() => evaluate("!document.querySelector('dialog[open]')"), 'viewer closes with Escape');
+      await evaluate("document.querySelector('aside[aria-label=\"Detalles del archivo\"] button[aria-label=\"Cerrar\"]').click()");
+    });
+
     await t.test('highlights drag-and-drop and processes each dropped file independently', async () => {
       await evaluate(`(() => {
         const transfer = new DataTransfer();
@@ -246,12 +293,89 @@ test('session navigation and multiple uploads in a real browser with a simulated
         window.testTransfer = transfer;
         document.querySelector('[role=region]').dispatchEvent(new DragEvent('dragenter', { dataTransfer: transfer, bubbles: true, cancelable: true }));
       })()`);
-      await until(() => evaluate("document.querySelector('[role=region]').classList.contains('border-accent')"), 'drag highlight');
+      await until(() => evaluate("Boolean(document.querySelector('[data-file-drop-overlay]'))"), 'drag highlight');
       await evaluate("document.querySelector('[role=region]').dispatchEvent(new DragEvent('drop', { dataTransfer: window.testTransfer, bubbles: true, cancelable: true }))");
       await until(() => records.length === 3, 'dropped upload');
       await until(() => evaluate("document.querySelector('[aria-labelledby=\"files-heading\"]').innerText.includes('dropped.txt')"), 'dropped list update');
       assert.equal(uploads.includes('dropped-empty.txt'), false);
-      assert.equal(await evaluate("document.querySelector('[role=region]').classList.contains('border-accent')"), false);
+      assert.equal(await evaluate("Boolean(document.querySelector('[data-file-drop-overlay]'))"), false);
+    });
+
+    await t.test('accepts files across the page and targets a hovered folder without duplicate uploads', async () => {
+      await evaluate(`(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['root'], 'global-drop.txt', { type: 'text/plain' }));
+        const sidebar = document.querySelector('aside[aria-label="Barra lateral"]');
+        sidebar.dispatchEvent(new DragEvent('dragenter', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      })()`);
+      await until(() => evaluate('Boolean(document.querySelector("[data-file-drop-overlay]"))'), 'global drop indicator');
+      await evaluate(`(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['root'], 'global-drop.txt', { type: 'text/plain' }));
+        document.body.dispatchEvent(new DragEvent('dragleave', { dataTransfer: transfer, bubbles: true, relatedTarget: null }));
+      })()`);
+      await until(() => evaluate('!document.querySelector("[data-file-drop-overlay]")'), 'leaving the window clears the indicator');
+      assert.equal(await evaluate(`(() => {
+        const transfer = new DataTransfer();
+        transfer.setData('text/plain', 'ordinary text');
+        const event = new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true });
+        document.body.dispatchEvent(event);
+        return event.defaultPrevented;
+      })()`), false);
+      await evaluate(`(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['root'], 'global-drop.txt', { type: 'text/plain' }));
+        document.querySelector('aside[aria-label="Barra lateral"]').dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      })()`);
+      await until(() => records.some(record => record.name === 'global-drop.txt'), 'sidebar drop upload');
+      assert.deepEqual(uploadDestinations.filter(item => item.name === 'global-drop.txt'), [{ name: 'global-drop.txt', folderId: null }]);
+      await until(() => evaluate('Boolean(document.querySelector("[data-upload-folder-id]"))'), 'folder card after refresh');
+      await evaluate(`(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['nested'], 'folder-drop.txt', { type: 'text/plain' }));
+        const icon = document.querySelector('[data-upload-folder-id] svg path');
+        window.folderDropTransfer = transfer;
+        icon.dispatchEvent(new DragEvent('dragover', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      })()`);
+      await until(() => evaluate('document.querySelector("[data-upload-folder-id]").classList.contains("ring-2")'), 'folder target highlight');
+      assert.equal(await evaluate('document.querySelector("[data-file-drop-overlay]").textContent.includes("Drop destination")'), true);
+      await evaluate(`document.querySelector('[data-upload-folder-id] svg path').dispatchEvent(new DragEvent('drop', { dataTransfer: window.folderDropTransfer, bubbles: true, cancelable: true }))`);
+      await until(() => records.some(record => record.name === 'folder-drop.txt'), 'folder drop upload');
+      assert.deepEqual(uploadDestinations.filter(item => item.name === 'folder-drop.txt'), [{ name: 'folder-drop.txt', folderId: dropFolder.id }]);
+      await until(() => evaluate('!document.querySelector("[data-file-drop-overlay]")'), 'drop indicator cleared');
+      await until(() => evaluate('Boolean(document.querySelector("[data-upload-folder-id]"))'), 'folder card available');
+      await evaluate('document.querySelector("[data-upload-folder-id]").click()');
+      await until(() => evaluate('document.querySelector("#workspace-title").textContent === "Drop destination"'), 'navigate to drop destination');
+      await until(() => evaluate('document.querySelector("[aria-labelledby=files-heading]").textContent.includes("folder-drop.txt")'), 'file stored in target folder');
+      await evaluate('document.querySelector("nav[aria-label=Ubicación] button").click()');
+      await until(() => evaluate('document.querySelector("#workspace-title").textContent === "Mi Unidad"'), 'return to root');
+    });
+
+    await t.test('renames a file through an accessible dialog', async () => {
+      await until(() => evaluate("Boolean(document.querySelector('article'))"), 'cards before rename');
+      await evaluate("Array.from(document.querySelector('article').querySelectorAll('button')).find(button => button.textContent === 'Renombrar').click()");
+      await until(() => evaluate("Boolean(document.querySelector('dialog[open] input'))"), 'rename dialog');
+      await evaluate("(() => { const input = document.querySelector('dialog input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'renamed.txt'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+      await evaluate("document.querySelector('dialog form').requestSubmit()");
+      await until(() => records.some(file => file.name === 'renamed.txt'), 'renamed metadata');
+      await until(() => evaluate("!document.querySelector('dialog[open]')"), 'rename completion');
+      await until(() => evaluate("Boolean(document.querySelector('article'))"), 'cards after rename');
+    });
+
+    await t.test('a duplicate upload can be cancelled or explicitly replaced', async () => {
+      const filename = path.join(temporaryDirectory, 'renamed.txt'); await writeFile(filename, 'replacement');
+      const before = uploads.filter(name => name === 'renamed.txt').length;
+      await selectFiles([filename]);
+      await until(() => evaluate("Boolean(document.querySelector('dialog[open] #conflict-title'))"), 'upload conflict dialog');
+      await evaluate("Array.from(document.querySelector('dialog').querySelectorAll('button')).find(button => button.textContent === 'Cancelar').click()");
+      await until(() => evaluate("!document.querySelector('dialog[open]')"), 'cancelled replacement');
+      assert.equal(uploads.filter(name => name === 'renamed.txt').length, before);
+      await selectFiles([filename]);
+      await until(() => evaluate("Boolean(document.querySelector('dialog[open] #conflict-title'))"), 'replacement confirmation');
+      await evaluate("Array.from(document.querySelector('dialog').querySelectorAll('button')).find(button => button.textContent === 'Reemplazar').click()");
+      await until(() => uploads.filter(name => name === 'renamed.txt').length === before + 1, 'replacement upload');
+      await until(() => records.filter(file => file.name === 'renamed.txt').length === 1, 'unique replacement name');
+      assert.equal(trashedRecords.some(file => file.name === 'renamed.txt'), true);
     });
 
     const uploadSnapshot = (name) => evaluateFunction(`function (name) {

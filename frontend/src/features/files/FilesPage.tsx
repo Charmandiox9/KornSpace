@@ -1,227 +1,124 @@
+import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState } from 'react';
+import { animate, stagger } from 'animejs';
 import { CreateFolderDialog } from '@/components/CreateFolderDialog';
 import { WorkspaceHeader, WORKSPACE_TITLE_ID } from '@/components/WorkspaceHeader';
 import { formatFileSize } from '@/lib/format-file-size';
-import type { FilesPageProps } from '@/types';
-import { animate, stagger } from 'animejs';
-import Link from 'next/link';
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import type { FilesPageProps, StoredFile } from '@/types';
+import { useFileDrop } from '@/hooks/use-file-drop';
+import { FileViewer } from './FileViewer';
+import { FileEditDialog } from './FileEditDialog';
+import { authenticatedFetch } from '@/lib/api-client';
+import { sileo } from 'sileo';
 
-export function FilesPage({
-  copy,
-  files,
-  folders,
-  currentFolder,
-  breadcrumbs,
-  currentFolderId,
-  trash,
-  notice,
-  apiUrl,
-  onUpload,
-  onUploadDirectory,
-  onNavigate,
-  onMoveToTrash,
-  onDeletePermanent,
-  onRestore,
-  onCreateFolder,
-  initialTrash = false,
-}: FilesPageProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const directoryInputRef = useRef<HTMLInputElement>(null);
-  const gridRef = useRef<HTMLElement>(null);
-  const dragDepth = useRef(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const showTrash = initialTrash;
-  const [fileToDelete, setFileToDelete] = useState<(typeof files)[number] | null>(null);
-  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [fileToConfirmDelete, setFileToConfirmDelete] = useState<(typeof files)[number] | null>(null);
-
+export function FilesPage({ copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, notice, apiUrl, onUpload, onUploadDirectory, onNavigate, onMoveToTrash, onDeletePermanent, onRestore, onCreateFolder, onChanged, title, toolbar, initialTrash = false, isLoading = false }: FilesPageProps) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const directoryInput = useRef<HTMLInputElement>(null);
+  const grid = useRef<HTMLDivElement>(null);
+  const deleteDialog = useRef<HTMLDialogElement>(null);
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  const [selected, setSelected] = useState<StoredFile | null>(null);
+  const [viewing, setViewing] = useState<StoredFile | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<StoredFile | null>(null);
+  const [editing, setEditing] = useState<StoredFile | null>(null);
+  const [editMode, setEditMode] = useState<'rename' | 'share'>('rename');
+  const [emptying, setEmptying] = useState(false);
+  const [emptyBusy, setEmptyBusy] = useState(false);
+  const emptyDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { if (emptying) emptyDialog.current?.showModal(); }, [emptying]);
+  const { isDragging: dragging, targetFolderId: dropFolderId } = useFileDrop({ folders, currentFolderId, enabled: !initialTrash && !creating && !deleting && !viewing && !editing, onUpload });
+  const dropFolderName = folders.find((folder) => folder.id === dropFolderId)?.name ?? currentFolder?.name ?? copy.myDrive;
+  const shownFiles = initialTrash ? trash : files;
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
-    const entries = gridRef.current?.querySelectorAll<HTMLElement>('[data-grid-entry]');
-    if (!entries?.length) return undefined;
-    const animation = animate([...entries], {
-      opacity: [0, 1],
-      y: [12, 0],
-      delay: stagger(28, { start: 16 }),
-      duration: 280,
-      ease: 'outCubic',
-    });
+    if (deleting) deleteDialog.current?.showModal();
+  }, [deleting]);
+  const selectedFile = shownFiles.find((file) => file.id === selected?.id) ?? null;
+  useEffect(() => { setHost(document.getElementById('workspace-create-actions')); }, []);
+  useEffect(() => { setSelected(null); setViewing(null); }, [currentFolderId, initialTrash]);
+  useEffect(() => {
+    if (isLoading || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const entries = grid.current?.querySelectorAll('[data-entry]');
+    if (!entries?.length) return;
+    const animation = animate([...entries], { opacity: [0, 1], y: [8, 0], delay: stagger(22), duration: 240, ease: 'outCubic' });
     return () => { animation.revert(); };
-  }, [breadcrumbs, currentFolderId, files, folders, showTrash]);
+  }, [files, folders, isLoading]);
 
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = '';
-    onUpload(files, currentFolderId);
-  }
+  function closeMenu(element: HTMLElement) { element.closest('details')?.removeAttribute('open'); }
+  const previewUrl = (file: StoredFile) => apiUrl(`/api/files/${encodeURIComponent(file.id)}/preview`);
+  const downloadUrl = (file: StoredFile) => apiUrl(`/api/files/${encodeURIComponent(file.id)}`);
+  const canOpen = (file: StoredFile) => !initialTrash && file.status === 'AVAILABLE';
+  const isImage = (file: StoredFile) => ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif', 'image/bmp'].includes(file.contentType.split(';')[0]);
+  const isVideo = (file: StoredFile) => ['video/mp4', 'video/webm', 'video/ogg'].includes(file.contentType.split(';')[0]);
 
-  function handleDirectoryChange(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = '';
-    onUploadDirectory(files);
-  }
-
-  function handleDragEnter(event: DragEvent<HTMLDivElement>) {
-    if (!event.dataTransfer.types.includes('Files')) return;
-    event.preventDefault();
-    dragDepth.current += 1;
-    setIsDragging(true);
-  }
-
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    dragDepth.current = 0;
-    setIsDragging(false);
-    onUpload(Array.from(event.dataTransfer.files), currentFolderId);
-  }
-
-  return (
-    <section className="w-full min-w-0 max-w-[980px] self-center rounded-[20px] border border-line bg-surface p-[clamp(24px,5vw,48px)] shadow-panel max-[760px]:px-[18px] max-[760px]:py-6" aria-labelledby={WORKSPACE_TITLE_ID}>
-      <WorkspaceHeader
-        copy={copy}
-        location={showTrash
-          ? [{ id: null, name: copy.trashHeading }]
-          : [
-              { id: null, name: copy.myDrive },
-              ...breadcrumbs.map((folder) => ({ id: folder.id, name: folder.name })),
-              ...(currentFolder ? [{ id: currentFolder.id, name: currentFolder.name }] : []),
-            ]}
-        onNavigate={showTrash ? undefined : onNavigate}
-        onUploadClick={showTrash ? undefined : () => fileInputRef.current?.click()}
-        onUploadFolderClick={showTrash ? undefined : () => directoryInputRef.current?.click()}
-        onCreateFolder={showTrash || !onCreateFolder ? undefined : () => setIsCreatingFolder(true)}
-      />
-      {!showTrash && <div
-        role="region"
-        aria-label={copy.uploadZone}
-        onDragEnter={handleDragEnter}
-        onDragOver={(event) => {
-          if (!event.dataTransfer.types.includes('Files')) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'copy';
-        }}
-        onDragLeave={(event) => {
-          if (!event.dataTransfer.types.includes('Files')) return;
-          event.preventDefault();
-          dragDepth.current = Math.max(0, dragDepth.current - 1);
-          if (dragDepth.current === 0) setIsDragging(false);
-        }}
-        onDrop={handleDrop}
-        className={`mt-6 grid justify-items-center gap-3 rounded-2xl border-2 border-dashed p-6 text-center transition-colors motion-reduce:transition-none ${isDragging ? 'border-accent bg-accent-soft' : 'border-line bg-raised'}`}
-      >
-        <p className="text-sm font-semibold text-ink">{isDragging ? copy.dropFilesNow : copy.dropFilesHere}</p>
-        <p id="upload-hint" className="text-xs text-muted">{copy.uploadMultipleHint}</p>
-        <input
-          ref={fileInputRef}
-          className="sr-only"
-          type="file"
-          multiple
-          aria-label={copy.selectFiles}
-          aria-describedby="upload-hint"
-          onChange={handleFileChange}
-        />
-        <input
-          ref={directoryInputRef}
-          className="sr-only"
-          type="file"
-          multiple
-          aria-label={copy.selectFolder}
-          // @ts-expect-error Chromium and WebKit expose this non-standard directory picker attribute.
-          webkitdirectory=""
-          onChange={handleDirectoryChange}
-        />
-        <button
-          className="inline-flex min-h-[46px] shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl border-0 px-[17px] text-[13px] font-semibold text-white shadow-md shadow-accent/25 disabled:cursor-wait disabled:opacity-70 [&_span]:text-xl [&_span]:leading-none max-[760px]:w-full bg-linear-to-br from-accent to-secondary"
-          type="button"
-          aria-describedby="upload-hint"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <span aria-hidden="true">＋</span>{copy.selectFiles}
-        </button>
-      </div>}
-      <section ref={gridRef} className="pt-[26px] [&_h2]:mb-3.5 [&_h2]:text-[17px] [&_h2]:font-semibold [&_h2]:tracking-tight" aria-labelledby="files-heading">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 id="files-heading" className="m-0">{showTrash ? copy.trashHeading : copy.filesHeading}</h2>
-          <Link href={showTrash ? '/files' : '/trash'} className="shrink-0 text-xs font-semibold text-accent no-underline hover:underline">
-            {showTrash ? copy.filesHeading : `${copy.trashHeading} (${trash.length})`}
-          </Link>
-        </div>
-        {notice && <p className="m-0 mb-3 rounded-xl border border-line bg-raised px-4 py-3.5 text-[13px] leading-[1.6] text-muted" role="status">{notice}</p>}
-        {!showTrash && folders.length > 0 && <>
-          <h3 className="mb-2 mt-5 text-xs font-semibold text-muted">{copy.folderSection}</h3>
-          <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3 p-0">
-            {folders.map((folder) => (
-              <li key={folder.id} data-grid-entry className="min-w-0">
-                <button type="button" onClick={() => onNavigate(folder.id)} className="group flex min-h-[72px] w-full items-center gap-3 rounded-xl border border-line bg-raised p-3 text-left transition duration-200 hover:-translate-y-0.5 hover:border-accent-line hover:bg-accent-soft hover:shadow-md active:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none">
-                  <svg className="size-9 shrink-0 text-accent" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M4 9a2.5 2.5 0 0 1 2.5-2.5H13l3 3h9.5A2.5 2.5 0 0 1 28 12v12a2.5 2.5 0 0 1-2.5 2.5h-19A2.5 2.5 0 0 1 4 24z" fill="currentColor" opacity=".16"/><path d="M4 11.5A2.5 2.5 0 0 1 6.5 9H13l3 3h9.5A2.5 2.5 0 0 1 28 14.5V24a2.5 2.5 0 0 1-2.5 2.5h-19A2.5 2.5 0 0 1 4 24z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/></svg>
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold" title={folder.name}>{folder.name}</span>
-                  <span className="text-muted transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" aria-hidden="true">›</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+  return <section className="min-w-0 w-full flex-1" aria-labelledby={WORKSPACE_TITLE_ID}>
+    {dragging && createPortal(<div data-file-drop-overlay className="pointer-events-none fixed inset-2 z-[100] rounded-2xl border-2 border-accent bg-accent/5 motion-safe:transition-colors" aria-hidden="true"><div className="absolute inset-x-4 bottom-8 flex justify-center"><span className="max-w-full truncate rounded-2xl border border-accent-line bg-surface px-6 py-4 text-sm font-semibold text-accent shadow-panel">{copy.dropFilesNow} · {dropFolderName}</span></div></div>, document.body)}
+    <p className="sr-only" role="status" aria-live="polite">{dragging ? `${copy.dropFilesNow} · ${dropFolderName}` : ''}</p>
+    {host && !initialTrash && createPortal(<details className="relative">
+      <summary aria-label={copy.newAction} title={copy.newAction} className="grid size-12 cursor-pointer list-none place-items-center rounded-2xl bg-linear-to-br from-accent to-secondary text-3xl text-white shadow-lg shadow-accent/20 transition-transform hover:scale-105 motion-reduce:transform-none"><span aria-hidden="true">＋</span></summary>
+      <div className="absolute left-0 z-50 mt-3 grid w-52 gap-1 rounded-xl border border-line bg-surface p-2 shadow-panel" onClick={(event) => closeMenu(event.currentTarget)}>
+        <button type="button" className="rounded-lg px-3 py-3 text-left text-sm hover:bg-raised" onClick={() => fileInput.current?.click()}>{copy.uploadFiles}</button>
+        <button type="button" className="rounded-lg px-3 py-3 text-left text-sm hover:bg-raised" onClick={() => directoryInput.current?.click()}>{copy.uploadFolder}</button>
+        {onCreateFolder && <button type="button" className="border-t border-line px-3 py-3 text-left text-sm hover:bg-raised" onClick={() => setCreating(true)}>{copy.newFolder}</button>}
+      </div>
+    </details>, host)}
+    <WorkspaceHeader copy={copy} location={title ? [{ id: null, name: title }] : initialTrash ? [{ id: null, name: copy.trashHeading }] : [{ id: null, name: copy.myDrive }, ...breadcrumbs.map((folder) => ({ id: folder.id, name: folder.name })), ...(currentFolder ? [{ id: currentFolder.id, name: currentFolder.name }] : [])]} onNavigate={initialTrash ? undefined : onNavigate} />
+    <input ref={fileInput} type="file" multiple className="sr-only" aria-label={copy.selectFiles} onChange={(event) => { onUpload(Array.from(event.target.files ?? []), currentFolderId); event.target.value = ''; }} />
+    <input ref={directoryInput} type="file" multiple className="sr-only" aria-label={copy.selectFolder}
+      // @ts-expect-error Browser directory picker extension.
+      webkitdirectory="" onChange={(event) => { onUploadDirectory(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
+    {!initialTrash && <div role="region" aria-label={copy.uploadZone} className={`mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs ${dragging ? 'text-accent' : 'text-muted'}`}>
+      <p>{dragging ? copy.dropFilesNow : copy.dropFilesHere}</p><span id="upload-hint" className="sr-only">{copy.uploadMultipleHint}</span><button type="button" aria-describedby="upload-hint" className="rounded-lg px-3 py-2 font-semibold text-accent hover:bg-accent-soft" title={copy.uploadMultipleHint} onClick={() => fileInput.current?.click()}>{copy.selectFiles}</button>
+    </div>}
+    <div className="flex items-start gap-6">
+      <div ref={grid} className="min-w-0 flex-1 py-6" aria-busy={isLoading}>
+        {toolbar}
+        {initialTrash && trash.length > 0 && <div className="mb-5 flex justify-end"><button type="button" className="min-h-10 rounded-xl border border-line px-4 text-xs font-semibold text-status hover:bg-raised" onClick={() => setEmptying(true)}>{copy.emptyTrashAction}</button></div>}
+        {notice && <p role="status" className="mb-5 rounded-xl border border-line bg-raised p-4 text-sm text-muted">{notice}</p>}
+        {isLoading ? <div role="status" aria-label={copy.loadingFiles} className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">{Array.from({ length: 8 }, (_, index) => <div key={index} className="animate-pulse overflow-hidden rounded-2xl border border-line bg-raised motion-reduce:animate-none"><div className="aspect-[4/3] bg-line/40" /><div className="space-y-3 p-4"><div className="h-3 w-3/4 rounded bg-line" /><div className="h-2 w-1/2 rounded bg-line/60" /></div></div>)}</div> : <>
+          {!initialTrash && folders.length > 0 && <section className="mb-9 border-b border-line pb-9" aria-labelledby="folders-heading"><h2 id="folders-heading" className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted">{copy.folderSection}</h2><ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4 p-0">{folders.map((folder) => <li data-entry key={folder.id}><button type="button" data-upload-folder-id={folder.id} className={`group flex min-h-16 w-full items-center gap-3 rounded-xl border border-line bg-raised px-4 text-left transition hover:border-accent hover:bg-accent-soft motion-reduce:transition-none ${dragging && dropFolderId === folder.id ? 'border-accent bg-accent-soft ring-2 ring-accent/40' : ''}`} onClick={() => onNavigate(folder.id)}><svg className="size-7 shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z" fill="currentColor" fillOpacity=".12" /></svg><span className="min-w-0 flex-1 truncate text-sm font-medium">{folder.name}</span><span aria-hidden="true" className="text-muted">›</span></button></li>)}</ul></section>}
+          <section aria-labelledby="files-heading"><h2 id="files-heading" className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted">{initialTrash ? copy.trashHeading : copy.filesHeading}</h2>
+            {!notice && shownFiles.length === 0 && <p className="rounded-xl border border-dashed border-line px-5 py-12 text-center text-sm text-muted">{initialTrash ? copy.emptyTrash : currentFolderId ? copy.emptyFolder : copy.emptyFiles}</p>}
+            <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4 p-0">{shownFiles.map((file) => <li data-entry key={file.id} className="min-w-0"><article className={`group relative rounded-2xl border bg-raised transition hover:border-accent-line hover:shadow-lg motion-reduce:transition-none ${selectedFile?.id === file.id ? 'border-accent ring-2 ring-accent/20' : 'border-line'}`}>
+              <div className="flex items-center gap-2 px-3 py-2"><span aria-hidden="true" className="text-[10px] font-bold uppercase text-accent">{file.name.split('.').pop()?.slice(0, 5)}</span><span className="min-w-0 flex-1 truncate text-xs font-semibold" title={file.name}>{file.name}</span>
+                <details className="relative shrink-0"><summary aria-label={`${copy.fileActions}: ${file.name}`} className="grid size-9 cursor-pointer list-none place-items-center rounded-full text-xl text-muted hover:bg-accent-soft">⋮</summary><div className="absolute right-0 z-30 mt-1 grid w-44 gap-1 rounded-xl border border-line bg-surface p-2 text-xs shadow-panel" onClick={(event) => closeMenu(event.currentTarget)}>
+                  {canOpen(file) && <><button type="button" className="rounded-lg px-3 py-2 text-left hover:bg-raised" onClick={() => setViewing(file)}>{copy.openFile}</button><a className="rounded-lg px-3 py-2 text-accent hover:bg-raised" href={downloadUrl(file)}>{copy.download}</a></>}
+                  <button type="button" className="rounded-lg px-3 py-2 text-left hover:bg-raised" onClick={() => setSelected(file)}>{copy.fileDetails}</button>
+                  {initialTrash && <button type="button" className="rounded-lg px-3 py-2 text-left text-accent hover:bg-raised" onClick={() => onRestore(file.id)}>{copy.restoreFile}</button>}
+                  {!initialTrash && file.permission !== 'READER' && <button type="button" className="rounded-lg px-3 py-2 text-left hover:bg-raised" onClick={() => { setEditMode('rename'); setEditing(file); }}>{copy.renameFile}</button>}
+                  {!initialTrash && (!file.permission || file.permission === 'OWNER') && <button type="button" className="rounded-lg px-3 py-2 text-left hover:bg-raised" onClick={() => { setEditMode('share'); setEditing(file); }}>{copy.shareFile}</button>}
+                  {file.permission !== 'READER' && <button type="button" className="rounded-lg px-3 py-2 text-left text-status hover:bg-raised" onClick={() => setDeleting(file)}>{initialTrash ? copy.deletePermanently : copy.deleteFile}</button>}
+                </div></details>
+              </div>
+              <button type="button" aria-label={`${copy.fileDetails}: ${file.name}`} aria-pressed={selectedFile?.id === file.id} onClick={() => setSelected(file)} onDoubleClick={() => { if (canOpen(file)) setViewing(file); }} className="block w-full rounded-b-2xl px-2 pb-3 text-left focus-visible:outline-2 focus-visible:outline-accent">
+                <span className="relative grid aspect-[4/3] place-items-center overflow-hidden rounded-xl bg-surface text-muted">{canOpen(file) && isImage(file) ? <img className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.025] motion-reduce:transform-none" src={previewUrl(file)} alt="" loading="lazy" /> : canOpen(file) && isVideo(file) ? <><video className="size-full object-cover" src={previewUrl(file)} muted playsInline preload="metadata" /><span className="absolute grid size-12 place-items-center rounded-full bg-black/50 text-xl text-white" aria-hidden="true">▷</span></> : <span className="grid justify-items-center gap-3 p-4"><span className="text-4xl text-accent" aria-hidden="true">▤</span><span className="break-all text-center text-xs">{file.status === 'AVAILABLE' ? file.contentType : file.status === 'FAILED' ? copy.fileFailed : copy.fileProcessing}</span></span>}</span>
+                <span className="block px-2 pt-3 text-[11px] text-muted">{formatFileSize(file.sizeBytes)} · {file.status === 'AVAILABLE' ? copy.fileReady : file.status === 'FAILED' ? copy.fileFailed : copy.fileProcessing}</span>
+              </button>
+              {title && file.ownerName && <div className="flex items-center gap-2 border-t border-line px-3 py-3 text-[11px] text-muted"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft font-semibold text-accent" aria-hidden="true">{file.ownerName.slice(0, 1)}</span><span className="min-w-0 truncate">{file.ownerName}{file.openedAt ? ' · ' + new Intl.DateTimeFormat(copy.socialLocale.replace('_', '-'), { dateStyle: 'short' }).format(new Date(file.openedAt)) : ''}</span></div>}
+            </article></li>)}</ul>
+          </section>
         </>}
-        {(showTrash ? trash : files).length === 0 && (showTrash || folders.length === 0) ? (
-          <p className="m-0 rounded-xl border border-line bg-raised px-4 py-3.5 text-[13px] leading-[1.6] text-muted">{showTrash ? copy.emptyTrash : currentFolderId ? copy.emptyFolder : copy.emptyFiles}</p>
-        ) : <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3 p-0">
-          {(showTrash ? trash : files).map((file) => {
-            const mediaType = file.contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
-            const isImage = ['image/avif', 'image/bmp', 'image/gif', 'image/jpeg', 'image/png', 'image/webp'].includes(mediaType);
-            const isVideo = ['video/mp4', 'video/ogg', 'video/webm'].includes(mediaType);
-            const canPreview = !showTrash && file.status === 'AVAILABLE' && (isImage || isVideo);
-            const previewUrl = apiUrl(`/api/files/${encodeURIComponent(file.id)}/preview`);
-            return (
-              <li key={file.id} data-grid-entry className="min-w-0">
-                <article className="group overflow-hidden rounded-xl border border-line bg-raised transition duration-200 hover:-translate-y-0.5 hover:border-accent-line hover:shadow-lg motion-reduce:transform-none motion-reduce:transition-none">
-                  <div className="relative grid aspect-[16/10] place-items-center overflow-hidden bg-surface text-muted">
-                    {canPreview && isImage && <img className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.025] motion-reduce:transform-none motion-reduce:transition-none" src={previewUrl} alt={file.name} loading="lazy" />}
-                    {canPreview && isVideo && <video className="size-full object-cover" src={previewUrl} controls muted playsInline preload="metadata" aria-label={file.name} />}
-                    {!canPreview && <div className="grid justify-items-center gap-2 px-3 text-center"><svg className="size-10 text-accent" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M8 3.5h10l7 7V27a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5.5a2 2 0 0 1 2-2Z" fill="currentColor" opacity=".12"/><path d="M18 3.5v7h7M10 18h12M10 22h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg><span className="text-[11px] font-medium">{file.status === 'AVAILABLE' ? copy.previewUnavailable : file.status === 'FAILED' ? copy.fileFailed : copy.fileProcessing}</span></div>}
-                  </div>
-                  <div className="grid gap-1.5 p-3">
-                    <span className="truncate text-[13px] font-semibold" title={file.name}>{file.name}</span>
-                    <span className="text-[11px] text-muted">{formatFileSize(file.sizeBytes)} · {file.status === 'AVAILABLE' ? copy.fileReady : file.status === 'FAILED' ? copy.fileFailed : copy.fileProcessing}{showTrash && file.deletedAt ? ` · ${copy.trashExpiry}` : ''}</span>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-2">
-                      {!showTrash && file.status === 'AVAILABLE' && <a className="text-xs font-semibold text-accent no-underline hover:underline" href={apiUrl(`/api/files/${encodeURIComponent(file.id)}`)}>{copy.download}</a>}
-                      {showTrash ? <><button type="button" className="text-xs font-semibold text-accent hover:underline" onClick={() => onRestore(file.id)}>{copy.restoreFile}</button><button type="button" className="text-xs font-semibold text-status hover:underline" onClick={() => setFileToConfirmDelete(file)}>{copy.deletePermanently}</button></> : <button type="button" className="text-xs font-semibold text-muted hover:text-status" onClick={() => setFileToDelete(file)}>{copy.deleteFile}</button>}
-                    </div>
-                  </div>
-                </article>
-              </li>
-            );
-          })}
-        </ul>}
-      </section>
-      {isCreatingFolder && onCreateFolder && (
-        <CreateFolderDialog copy={copy} onClose={() => setIsCreatingFolder(false)} onSubmit={(name) => onCreateFolder(name, currentFolderId)} />
-      )}
-      {fileToDelete && (
-        <div className="fixed inset-0 z-80 grid place-items-center bg-black/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setFileToDelete(null); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="delete-choice-title" className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-2xl">
-            <h2 id="delete-choice-title" className="mb-2 text-lg font-semibold">{copy.deleteChoiceTitle}</h2>
-            <p className="mb-5 truncate text-sm text-muted" title={fileToDelete.name}>{fileToDelete.name}</p>
-            <div className="grid gap-2">
-              <button type="button" className="min-h-11 rounded-xl bg-accent px-4 text-sm font-semibold text-white" onClick={() => { onMoveToTrash(fileToDelete); setFileToDelete(null); }}>{copy.trashChoice}</button>
-              <button type="button" className="min-h-11 rounded-xl border border-line px-4 text-sm font-semibold text-status" onClick={() => { onDeletePermanent(fileToDelete.id); setFileToDelete(null); }}>{copy.permanentChoice}</button>
-              <button type="button" className="min-h-10 text-sm text-muted" onClick={() => setFileToDelete(null)}>{copy.cancel}</button>
-            </div>
-          </section>
-        </div>
-      )}
-      {fileToConfirmDelete && (
-        <div className="fixed inset-0 z-80 grid place-items-center bg-black/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setFileToConfirmDelete(null); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="permanent-delete-title" className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-2xl">
-            <h2 id="permanent-delete-title" className="mb-2 text-lg font-semibold">{copy.confirmPermanentTitle}</h2>
-            <p className="mb-2 text-sm text-muted">{copy.confirmPermanentDescription}</p>
-            <p className="mb-5 truncate text-sm font-semibold text-ink" title={fileToConfirmDelete.name}>{fileToConfirmDelete.name}</p>
-            <div className="flex justify-end gap-2">
-              <button type="button" className="min-h-10 rounded-xl px-4 text-sm text-muted hover:bg-raised" onClick={() => setFileToConfirmDelete(null)}>{copy.cancel}</button>
-              <button type="button" className="min-h-10 rounded-xl bg-status px-4 text-sm font-semibold text-white" onClick={() => { onDeletePermanent(fileToConfirmDelete.id); setFileToConfirmDelete(null); }}>{copy.deletePermanently}</button>
-            </div>
-          </section>
-        </div>
-      )}
-    </section>
-  );
+      </div>
+      {selectedFile && <aside aria-label={copy.fileDetails} className="sticky top-6 mt-6 w-72 shrink-0 rounded-2xl border border-line bg-surface p-5 max-[1100px]:fixed max-[1100px]:inset-y-4 max-[1100px]:right-4 max-[1100px]:z-50 max-[1100px]:mt-0 max-[1100px]:overflow-auto max-[1100px]:shadow-2xl max-[420px]:w-[calc(100vw-90px)]">
+        <div className="mb-6 flex items-center justify-between"><h2 className="text-sm font-semibold">{copy.fileDetails}</h2><button type="button" aria-label={copy.closePanel} className="grid size-9 place-items-center rounded-full text-xl hover:bg-raised" onClick={() => setSelected(null)}>×</button></div>
+        <div className="mb-5 grid aspect-[4/3] place-items-center overflow-hidden rounded-xl bg-raised text-5xl text-accent" aria-hidden="true">{isImage(selectedFile) && canOpen(selectedFile) ? <img src={previewUrl(selectedFile)} alt="" className="size-full object-contain" /> : '▤'}</div>
+        <h3 className="mb-6 break-words text-sm font-semibold">{selectedFile.name}</h3>{selectedFile.ownerName && <p className="mb-5 text-xs text-muted">{copy.filterOwner}: {selectedFile.ownerName}</p>}<dl className="grid gap-5 text-xs"><div><dt className="mb-1 text-muted">{copy.fileType}</dt><dd className="break-all">{selectedFile.contentType}</dd></div><div><dt className="mb-1 text-muted">{copy.fileSize}</dt><dd>{formatFileSize(selectedFile.sizeBytes)}</dd></div><div><dt className="mb-1 text-muted">{copy.fileCreated}</dt><dd>{new Intl.DateTimeFormat(copy.socialLocale.replace('_', '-'), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(selectedFile.createdAt))}</dd></div></dl>
+        {canOpen(selectedFile) && <div className="mt-7 grid gap-2 border-t border-line pt-5"><button type="button" className="min-h-10 rounded-xl bg-accent-soft text-sm font-semibold text-accent" onClick={() => setViewing(selectedFile)}>{copy.openFile}</button><a className="py-2 text-center text-xs text-accent" href={downloadUrl(selectedFile)}>{copy.download}</a></div>}
+      </aside>}
+    </div>
+    {viewing && <FileViewer key={viewing.id} file={viewing} copy={copy} apiUrl={apiUrl} onClose={() => { setViewing(null); void onChanged?.(); }} onDelete={() => { setDeleting(viewing); setViewing(null); }} />}
+    {editing && <FileEditDialog file={editing} mode={editMode} copy={copy} onClose={() => setEditing(null)} onSaved={onChanged ?? (async () => undefined)} />}
+    {creating && onCreateFolder && <CreateFolderDialog copy={copy} onClose={() => setCreating(false)} onSubmit={(name) => onCreateFolder(name, currentFolderId)} />}
+    {deleting && <dialog ref={deleteDialog} onCancel={() => setDeleting(null)} aria-labelledby="delete-title" className="fixed inset-0 m-auto w-[min(90vw,440px)] rounded-2xl border border-line bg-surface p-6 text-ink shadow-2xl backdrop:bg-black/50">
+      <h2 id="delete-title" className="mb-3 font-semibold">{initialTrash ? copy.confirmPermanentTitle : copy.deleteChoiceTitle}</h2><p className="mb-5 truncate text-sm text-muted">{deleting.name}</p><div className="grid gap-2">
+        {!initialTrash && <button type="button" className="min-h-11 rounded-xl bg-accent px-4 text-sm font-semibold text-white" onClick={() => { onMoveToTrash(deleting); setDeleting(null); setSelected(null); }}>{copy.trashChoice}</button>}
+        {initialTrash && <><p className="text-sm leading-6 text-muted">{copy.emptyTrashDescription}</p><button type="button" className="min-h-11 rounded-xl border border-line text-sm text-status" onClick={() => { onDeletePermanent(deleting.id); setDeleting(null); setSelected(null); }}>{copy.deletePermanently}</button></>}
+        <button type="button" className="min-h-10 text-sm text-muted" onClick={() => setDeleting(null)}>{copy.cancel}</button></div>
+    </dialog>}
+    {emptying && <dialog ref={emptyDialog} onCancel={(event) => { if (emptyBusy) event.preventDefault(); else setEmptying(false); }} aria-labelledby="empty-trash-title" className="fixed inset-0 m-auto w-[min(92vw,460px)] rounded-2xl border border-line bg-surface p-6 text-ink shadow-panel backdrop:bg-black/60">
+      <h2 id="empty-trash-title" className="mb-4 text-lg font-semibold">{copy.emptyTrashAction}</h2><p className="mb-6 text-sm leading-6 text-muted">{copy.emptyTrashDescription}</p><div className="flex justify-end gap-2"><button type="button" disabled={emptyBusy} className="min-h-11 rounded-xl px-4 text-sm" onClick={() => setEmptying(false)}>{copy.cancel}</button><button type="button" disabled={emptyBusy} className="min-h-11 rounded-xl bg-status px-4 text-sm font-semibold text-white" onClick={() => { setEmptyBusy(true); void (async () => {
+        try { const response = await authenticatedFetch('/api/files/trash', { method: 'DELETE' }); const result: unknown = await response.json(); if (!response.ok) throw new Error(); if (typeof result === 'object' && result !== null && 'pending' in result && typeof result.pending === 'number' && result.pending > 0) sileo.error({ title: copy.emptyTrashPending }); else sileo.success({ title: copy.filePermanentlyDeleted }); await onChanged?.(); setEmptying(false); } catch { sileo.error({ title: copy.fileActionFailed }); } finally { setEmptyBusy(false); }
+      })(); }}>{copy.emptyTrashAction}</button></div>
+    </dialog>}
+  </section>;
 }
-

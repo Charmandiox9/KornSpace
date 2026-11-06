@@ -60,6 +60,7 @@ export function Sidebar(props: SidebarProps) {
         <span className="grid size-[38px] place-items-center rounded-[11px] text-lg font-bold text-white shadow-md shadow-accent/25 max-[760px]:size-[42px] max-[420px]:size-[38px] bg-linear-to-br from-accent to-secondary" aria-hidden="true">K</span>
         <span className="text-[15px] font-semibold tracking-tight max-[760px]:hidden">KornSpace</span>
       </Link>
+      <div id="workspace-create-actions" className="relative z-50 w-full" />
       <nav className="grid w-full gap-1" aria-label={copy.workspaceNavigation}>
         {navItems.map((item) => {
           const isActive = pathname === item.href;

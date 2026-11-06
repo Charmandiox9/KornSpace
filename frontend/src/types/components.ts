@@ -100,6 +100,10 @@ export interface UsernameSetupPageProps {
 }
 
 export interface FilesPageProps {
+  title?: string;
+  toolbar?: ReactNode;
+  onChanged?: () => Promise<void>;
+  isLoading?: boolean;
   copy: TranslationCatalog;
   files: StoredFile[];
   folders: StoredFolder[];
@@ -118,6 +122,33 @@ export interface FilesPageProps {
   onRestore: (fileId: string) => void;
   /** Si no se pasa, la acción «Nueva carpeta» no se muestra. */
   onCreateFolder?: (name: string, parentId: string | null) => Promise<void>;
+}
+
+export interface FileEditDialogProps {
+  file: StoredFile;
+  mode: 'rename' | 'share';
+  copy: TranslationCatalog;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}
+
+export interface FileConflictDialogProps {
+  name: string;
+  copy: TranslationCatalog;
+  onResolve: (replace: boolean) => void;
+}
+
+export interface LibraryPageProps extends Omit<FilesPageProps, 'files'> {
+  sharedOnly?: boolean;
+  refreshKey?: number;
+}
+
+export interface FileViewerProps {
+  file: StoredFile;
+  copy: TranslationCatalog;
+  apiUrl: (path: string) => string;
+  onClose: () => void;
+  onDelete: () => void;
 }
 
 export interface SessionProviderProps {
