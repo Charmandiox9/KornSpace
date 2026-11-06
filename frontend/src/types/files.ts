@@ -29,6 +29,7 @@ export interface ResolvedShareRecipient {
 }
 
 export interface StoredFolder {
+  permission?: 'OWNER' | 'READER' | 'EDITOR';
   id: string;
   name: string;
   ownerId: string;
@@ -131,3 +132,13 @@ export interface UploadConflict {
 }
 
 export interface RestoreConflict { path: string; name: string; conflictId: string; }
+
+export interface ResourcePermission {
+  userId: string;
+  email: string;
+  username: string | null;
+  role: 'READER' | 'EDITOR';
+  inherited: boolean;
+  sourceId: string;
+  sourceName: string;
+}

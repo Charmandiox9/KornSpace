@@ -1,5 +1,6 @@
 import { BadRequestException, HttpException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import type { Folder, StoredFile } from '@prisma/client';
+import type { Folder, StoredFile, FileRole } from '@prisma/client';
+import { folderAccess, folderPermissionRows, inheritedFolderRole, strongestRole, type ResourcePermission } from './folder-policy';
 import { PrismaService } from '../prisma/prisma.service';
 import type { StoredFileResponse } from '../files/file.types';
 import type { FolderContentsResponse, FolderResponse } from './folder.types';
@@ -37,12 +38,7 @@ export class FoldersService {
   constructor(private readonly prisma: PrismaService) {}
 
   private async accessible(prisma: Pick<PrismaService, 'folder' | 'folderPermission'>, id: string, userId: string, ownerOnly = false): Promise<Folder> {
-    const folder = await prisma.folder.findUnique({ where: { id } });
-    if (!folder) throw new NotFoundException('No se encontró la carpeta.');
-    if (folder.ownerId !== userId && (ownerOnly || !await prisma.folderPermission.findUnique({ where: { folderId_userId: { folderId: id, userId } } }))) {
-      throw new NotFoundException('No se encontró la carpeta.');
-    }
-    return folder;
+    return (await folderAccess(prisma, id, userId, !ownerOnly, ownerOnly)).folder;
   }
 
   private mutationError(error: unknown): never {
@@ -78,7 +74,7 @@ export class FoldersService {
     } catch (error: unknown) { this.mutationError(error); }
   }
 
-  async grantEditor(id: string, ownerId: string, identifier: string): Promise<{ userId: string }> {
+  async grantEditor(id: string, ownerId: string, identifier: string, role: FileRole = 'EDITOR'): Promise<{ userId: string }> {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.accessible(tx, id, ownerId, true);
@@ -86,18 +82,27 @@ export class FoldersService {
         const users = await tx.user.findMany({ where: { id: { not: ownerId }, ...(value.includes('@') ? { email: { equals: value, mode: 'insensitive' } } : { username: { equals: value, mode: 'insensitive' } }) }, select: { id: true }, take: 2 });
         if (users.length !== 1) throw new NotFoundException('No se encontró un destinatario único.');
         const userId = users[0].id;
-        await tx.folderPermission.upsert({ where: { folderId_userId: { folderId: id, userId } }, create: { folderId: id, userId }, update: {} });
+        await tx.folderPermission.upsert({ where: { folderId_userId: { folderId: id, userId } }, create: { folderId: id, userId, role }, update: { role } });
         return { userId };
       });
     } catch (error: unknown) { return this.mutationError(error); }
   }
 
-  async listEditors(id: string, ownerId: string): Promise<Array<{ userId: string; email: string; username: string | null }>> {
+  async listEditors(id: string, ownerId: string): Promise<ResourcePermission[]> {
     try {
       await this.accessible(this.prisma, id, ownerId, true);
-      const grants = await this.prisma.folderPermission.findMany({ where: { folderId: id }, include: { user: { select: { email: true, username: true } } } });
-      return grants.map((grant) => ({ userId: grant.userId, email: grant.user.email, username: grant.user.username }));
+      return await folderPermissionRows(this.prisma, id);
     } catch (error: unknown) { return this.mutationError(error); }
+  }
+
+  async updatePermission(id: string, ownerId: string, userId: string, role: FileRole): Promise<void> {
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await this.accessible(tx, id, ownerId, true);
+        const result = await tx.folderPermission.updateMany({ where: { folderId: id, userId }, data: { role } });
+        if (!result.count) throw new NotFoundException('No se encontró el permiso directo.');
+      });
+    } catch (error: unknown) { this.mutationError(error); }
   }
 
   async revokeEditor(id: string, ownerId: string, userId: string): Promise<void> {
@@ -116,13 +121,8 @@ export class FoldersService {
     }
 
     if (parentId) {
-      let parent: { id: string } | null;
-      try {
-        parent = await this.prisma.folder.findFirst({ where: { id: parentId, ownerId }, select: { id: true } });
-      } catch {
-        throw new ServiceUnavailableException('No fue posible validar la carpeta padre.');
-      }
-      if (!parent) throw new NotFoundException('No se encontró la carpeta padre.');
+      const access = await folderAccess(this.prisma, parentId, ownerId, true);
+      ownerId = access.folder.ownerId;
     }
 
     try {
@@ -138,27 +138,27 @@ export class FoldersService {
     let folder: Folder | null = null;
     if (parentId) {
       try {
-        folder = await this.accessible(this.prisma, parentId, ownerId);
+        folder = (await folderAccess(this.prisma, parentId, ownerId)).folder;
       } catch (error: unknown) {
-        if (error instanceof NotFoundException) throw error;
+        if (error instanceof HttpException) throw error;
         throw new ServiceUnavailableException('No fue posible validar la carpeta solicitada.');
       }
       if (!folder) throw new NotFoundException('No se encontró la carpeta solicitada.');
     }
 
-    if (folder && folder.ownerId !== ownerId) return { folder: toFolderResponse(folder), breadcrumbs: [], folders: [], files: [] };
+    const contentOwnerId = folder?.ownerId ?? ownerId;
     try {
       const [children, storedFiles] = await Promise.all([
-        this.prisma.folder.findMany({ where: { ownerId, parentId }, orderBy: { name: 'asc' } }),
-        this.prisma.storedFile.findMany({ where: { ownerId, folderId: parentId, deletedAt: null }, orderBy: { createdAt: 'desc' } }),
+        this.prisma.folder.findMany({ where: { ownerId: contentOwnerId, parentId }, orderBy: { name: 'asc' } }),
+        this.prisma.storedFile.findMany({ where: { ownerId: contentOwnerId, folderId: parentId, deletedAt: null }, include: { permissions: { where: { userId: ownerId } } }, orderBy: { createdAt: 'desc' } }),
       ]);
 
       const shared = parentId === null ? await this.prisma.folderPermission.findMany({ where: { userId: ownerId }, include: { folder: true } }) : [];
       return {
-        folder: folder ? toFolderResponse(folder) : null,
+        folder: folder ? { ...toFolderResponse(folder), permission: (await folderAccess(this.prisma, folder.id, ownerId)).role } : null,
         breadcrumbs: await this.getBreadcrumbs(ownerId, folder),
-        folders: [...children, ...shared.map((grant) => grant.folder)].map(toFolderResponse),
-        files: storedFiles.map(toFileResponse),
+        folders: await Promise.all([...children, ...shared.map((grant) => grant.folder)].map(async (child) => ({ ...toFolderResponse(child), permission: (await folderAccess(this.prisma, child.id, ownerId)).role }))),
+        files: await Promise.all(storedFiles.map(async (file) => ({ ...toFileResponse(file), ownerId: file.ownerId, permission: file.ownerId === ownerId ? 'OWNER' as const : strongestRole(file.permissions[0]?.role ?? null, parentId ? await inheritedFolderRole(this.prisma, parentId, ownerId) : null) ?? 'READER' as const }))),
       };
     } catch (error: unknown) {
       if (error instanceof NotFoundException || error instanceof ServiceUnavailableException) throw error;
@@ -173,7 +173,9 @@ export class FoldersService {
     while (cursor?.parentId) {
       if (visited.has(cursor.id)) throw new ServiceUnavailableException('La jerarquía de carpetas contiene un ciclo.');
       visited.add(cursor.id);
-      const parent = await this.prisma.folder.findFirst({ where: { id: cursor.parentId, ownerId } });
+      let parent: Folder;
+      try { parent = (await folderAccess(this.prisma, cursor.parentId, ownerId)).folder; }
+      catch (error: unknown) { if (error instanceof NotFoundException) break; throw error; }
       if (!parent) throw new ServiceUnavailableException('La carpeta padre ya no está disponible.');
       ancestors.unshift(parent);
       cursor = parent;

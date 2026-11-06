@@ -100,6 +100,7 @@ model FileVisit {
 }
 
 model FolderPermission {
+  role FileRole @default(EDITOR)
   folderId String @db.Uuid
   userId String @db.Uuid
   folder Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)

@@ -1,6 +1,7 @@
 import type { StoredFileResponse } from '../files/file.types';
 
 export interface FolderResponse {
+  permission?: 'OWNER' | 'READER' | 'EDITOR';
   id: string;
   name: string;
   ownerId: string;

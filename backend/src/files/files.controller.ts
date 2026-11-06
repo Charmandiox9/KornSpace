@@ -122,6 +122,7 @@ export class FilesController {
   }
 
   @Post()
+  @ApiForbiddenResponse({ description: 'Los lectores no pueden subir archivos a la carpeta destino.' })
   @ApiOperation({ summary: 'Sube un archivo a S3 y encola los mayores a 10 MiB' })
   @ApiQuery({ name: 'name', required: true, description: 'Nombre de 1 a 255 caracteres, sin caracteres de control.' })
   @ApiQuery({ name: 'folderId', required: false, format: 'uuid', description: 'Carpeta propia de destino; omitido para la raíz.' })

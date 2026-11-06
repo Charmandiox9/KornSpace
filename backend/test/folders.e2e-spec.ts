@@ -187,3 +187,34 @@ test('folder mutation REST routes validate names, permissions, nonempty deletion
     assert.ok(doc.paths['/api/folders/{id}']?.delete?.responses['409']);
   } finally { await app.close(); }
 });
+
+
+test('HTTP readers inherit access through folder descendants while editors can rename files and folders', async () => {
+  const { inheritanceHarness } = await import('./permission-inheritance.harness');
+  const { FileLibraryController } = await import('../src/files/file-library.controller');
+  const { FileLibraryService } = await import('../src/files/file-library.service');
+  const { FilesService } = await import('../src/files/files.service');
+  const h = inheritanceHarness();
+  h.folderGrants.set(h.rootId + ':peer', 'READER');
+  const moduleRef = await Test.createTestingModule({ controllers: [FoldersController, FileLibraryController], providers: [{ provide: FoldersService, useValue: h.service }, { provide: FileLibraryService, useValue: h.library }, { provide: FilesService, useValue: {} }] })
+    .overrideGuard(SessionJwtGuard).useValue({ canActivate: (context: { switchToHttp: () => { getRequest: () => { authContext?: { userId: string } } } }) => { context.switchToHttp().getRequest().authContext = { userId: 'peer' }; return true; } }).compile();
+  const app = moduleRef.createNestApplication({ logger: false });
+  app.setGlobalPrefix('api'); app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  await app.listen(0, '127.0.0.1');
+  try {
+    const base = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}/api`;
+    const patch = (path: string) => fetch(base + path, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Edited' }) });
+    const contents = await fetch(base + '/folders?parentId=' + h.childId);
+    assert.equal(contents.status, 200);
+    assert.equal(((await contents.json()) as { files: Array<{ permission: string }> }).files[0].permission, 'READER');
+    assert.equal((await patch('/folders/' + h.childId)).status, 403);
+    assert.equal((await patch('/files/' + h.fileId)).status, 403);
+    h.folderGrants.set(h.rootId + ':peer', 'EDITOR');
+    h.fileGrants.set('peer', 'READER');
+    assert.equal((await patch('/folders/' + h.childId)).status, 200);
+    assert.equal((await patch('/files/' + h.fileId)).status, 200);
+    h.folderGrants.clear(); h.fileGrants.clear();
+    assert.equal((await fetch(base + '/folders?parentId=' + h.childId)).status, 404);
+    assert.equal((await patch('/files/' + h.fileId)).status, 404);
+  } finally { await app.close(); }
+});

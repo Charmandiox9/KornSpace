@@ -1,4 +1,4 @@
-import type { Folder } from '@prisma/client';
+import type { Folder, FileRole } from '@prisma/client';
 import type { PrismaService } from '../src/prisma/prisma.service';
 import { FoldersService } from '../src/folders/folders.service';
 
@@ -7,7 +7,7 @@ export const editorId = '22222222-2222-4222-8222-222222222222';
 export function folderMutationHarness() {
   const folders: Folder[] = [{ id: folderId, ownerId: 'owner', parentId: null, name: 'Original', createdAt: new Date(), updatedAt: new Date() }];
   const files: Array<{ folderId: string; deletedAt: Date | null }> = [];
-  const editors = new Set<string>();
+  const editors = new Map<string, FileRole>();
   let deleteError: string | null = null;
   const tx = {
     folder: {
@@ -27,9 +27,10 @@ export function folderMutationHarness() {
     },
     storedFile: { findMany: async () => [], findFirst: async ({ where }: { where: { folderId: string } }) => files.find((file) => file.folderId === where.folderId) ?? null },
     folderPermission: {
-      findMany: async ({ where }: { where: { folderId?: string; userId?: string } }) => Array.from(editors).filter((userId) => !where.userId || where.userId === userId).map((userId) => ({ userId, folderId, folder: folders[0], user: { email: 'editor@example.test', username: 'editor' } })),
-      findUnique: async ({ where }: { where: { folderId_userId: { userId: string } } }) => editors.has(where.folderId_userId.userId) ? { userId: where.folderId_userId.userId } : null,
-      upsert: async ({ create }: { create: { userId: string } }) => { editors.add(create.userId); return create; },
+      updateMany: async ({ where, data }: { where: { userId: string }; data: { role: FileRole } }) => { if (!editors.has(where.userId)) return { count: 0 }; editors.set(where.userId, data.role); return { count: 1 }; },
+      findMany: async ({ where }: { where: { folderId?: string; userId?: string } }) => Array.from(editors.keys()).filter((userId) => !where.userId || where.userId === userId).map((userId) => ({ userId, role: editors.get(userId), folderId, folder: folders[0], user: { email: 'editor@example.test', username: 'editor' } })),
+      findUnique: async ({ where }: { where: { folderId_userId: { userId: string } } }) => editors.has(where.folderId_userId.userId) ? { userId: where.folderId_userId.userId, role: editors.get(where.folderId_userId.userId) } : null,
+      upsert: async ({ create }: { create: { userId: string; role: FileRole } }) => { editors.set(create.userId, create.role); return create; },
       deleteMany: async ({ where }: { where: { userId: string } }) => { editors.delete(where.userId); return { count: 1 }; },
     },
     user: { findMany: async () => [{ id: editorId }] },

@@ -127,6 +127,8 @@ test('session navigation and multiple uploads in a real browser with a simulated
     let folderDeleteAttempts = 0;
     const uploads = [];
     const permissionWrites = [];
+    const directFileGrants = new Map();
+    const directFolderGrants = new Map();
     const peer = { userId: '44444444-4444-4444-8444-444444444444', username: 'recipient', email: 'peer@example.test', name: 'Recipient' };
     const trashedRecords = [];
     const operations = new Map();
@@ -172,8 +174,22 @@ test('session navigation and multiple uploads in a real browser with a simulated
           if (['recipient', '@recipient', peer.email].includes(identifier)) body = peer;
           else { status = 404; body = { message: 'Recipient not found' }; }
         }
-        else if (event.request.method === 'PUT' && url.pathname.endsWith('/permissions')) {
-          const requestBody = JSON.parse(event.request.postData ?? '{}'); permissionWrites.push(requestBody); body = { userId: peer.userId, role: requestBody.role };
+        else if (/^\/api\/(files|folders)\/[^/]+\/permissions(?:\/[^/]+)?$/.test(url.pathname)) {
+          const [, , kind, id, , target] = url.pathname.split('/');
+          const store = kind === 'files' ? directFileGrants : directFolderGrants;
+          const grants = store.get(id) ?? new Map();
+          store.set(id, grants);
+          const source = kind === 'files' ? records.find((file) => file.id === id) : dropFolder;
+          if (event.request.method === 'GET') {
+            body = Array.from(grants, ([userId, role]) => ({ ...peer, userId, role, inherited: false, sourceId: id, sourceName: source?.name ?? id }));
+            if (kind === 'files' && source?.folderId === dropFolder.id) body.push(...Array.from(directFolderGrants.get(dropFolder.id) ?? [], ([userId, role]) => ({ ...peer, userId, role, inherited: true, sourceId: dropFolder.id, sourceName: dropFolder.name })));
+          } else if (event.request.method === 'PATCH') { const data = JSON.parse(event.request.postData); grants.set(target, data.role); body = {}; status = 204; }
+          else if (event.request.method === 'DELETE') { grants.delete(target); body = {}; status = 204; }
+          else {
+            const requestBody = JSON.parse(event.request.postData ?? '{}');
+            if (kind === 'files') permissionWrites.push(requestBody);
+            grants.set(peer.userId, requestBody.role); body = { userId: peer.userId, role: requestBody.role };
+          }
         }
         else if (url.pathname === '/api/files/name-conflict') {
           const requestBody = JSON.parse(event.request.postData ?? '{}');
@@ -431,13 +447,39 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await until(() => permissionWrites.length === 1, 'reader permission write');
       assert.deepEqual(permissionWrites[0], { identifier: 'recipient', recipientId: peer.userId, role: 'READER' });
       await until(() => evaluate("!document.querySelector('dialog[open]') && !document.querySelector('[aria-busy=true]')"), 'share completion');
-      await openShare(); await setRecipient(peer.email);
+      await openShare();
+      await until(() => evaluate(`Boolean(document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]'))`), 'existing file recipient');
+      assert.equal(await evaluate(`document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]').value`), 'READER');
+      await evaluate(`(() => { const permission = document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]'); permission.value = 'EDITOR'; permission.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await until(() => Array.from(directFileGrants.values()).some((grants) => grants.get(peer.userId) === 'EDITOR'), 'changed existing file permission');
+      await setRecipient(peer.email);
       await until(() => evaluate("!document.querySelector('dialog button[type=submit]').disabled"), 'verified email');
-      await evaluate("const role = document.querySelector('dialog select'); role.value = 'EDITOR'; role.dispatchEvent(new Event('change', { bubbles: true }))");
+      await evaluate("const role = document.querySelector('dialog select[aria-label=Compartir]'); role.value = 'EDITOR'; role.dispatchEvent(new Event('change', { bubbles: true }))");
       await evaluate("document.querySelector('dialog form').requestSubmit()");
       await until(() => permissionWrites.length === 2, 'editor permission write');
       assert.deepEqual(permissionWrites[1], { identifier: peer.email, recipientId: peer.userId, role: 'EDITOR' });
       await until(() => evaluate("!document.querySelector('dialog[open]')"), 'email share completion');
+    });
+
+    await t.test('folder sharing lists reader/editor grants and files display inherited access', async () => {
+      await evaluate(`document.querySelector('[aria-label="Compartir carpeta: Drop destination"]').click()`);
+      await until(() => evaluate('Boolean(document.querySelector("dialog[open] input"))'), 'folder share dialog');
+      await evaluate(`(() => { const input = document.querySelector('dialog input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'recipient'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await evaluate('document.querySelector("dialog form").requestSubmit()');
+      await until(() => directFolderGrants.get(dropFolder.id)?.get(peer.userId) === 'READER', 'folder reader permission');
+      await until(() => evaluate(`Boolean(document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]'))`), 'existing folder recipient');
+      await evaluate(`(() => { const permission = document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]'); permission.value = 'EDITOR'; permission.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await until(() => directFolderGrants.get(dropFolder.id)?.get(peer.userId) === 'EDITOR', 'edited folder permission');
+      await until(() => evaluate(`!document.querySelector('dialog button[type=button]').disabled`), 'folder sharing settled');
+      await evaluate(`Array.from(document.querySelectorAll('dialog button')).find((button) => button.textContent === 'Cancelar').click()`);
+      await evaluate(`document.querySelector('[data-upload-folder-id="drop-target"]').click()`);
+      await until(() => evaluate(`document.querySelector('#workspace-title').textContent === 'Drop destination' && Boolean(document.querySelector('article'))`), 'shared folder content');
+      await evaluate(`(() => { const card = Array.from(document.querySelectorAll('article')).find((card) => card.textContent.includes('folder-drop.txt')); Array.from(card.querySelectorAll('button')).find((button) => button.textContent === 'Compartir').click() })()`);
+      await until(() => evaluate(`Boolean(document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]'))`), 'inherited file recipient');
+      assert.equal(await evaluate(`document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]').disabled`), true);
+      assert.equal(await evaluate(`document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]').value`), 'EDITOR');
+      assert.equal(await evaluate(`document.querySelector('dialog').textContent.includes('Heredado de: Drop destination')`), true);
+      await evaluate(`Array.from(document.querySelectorAll('dialog button')).find((button) => button.textContent === 'Cancelar').click()`);
     });
 
     await t.test('home shows personal recent files and combines type, owner, location and search filters', async () => {

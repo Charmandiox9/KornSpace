@@ -1,4 +1,6 @@
 import { BadRequestException, ConflictException, HttpException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { folderAccess, folderPermissionRows, accessibleFolderIds, inheritedFolderRole, strongestRole, type ResourcePermission } from '../folders/folder-policy';
+import type { FileRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { fileAccess, nameConflict, validateFileName } from './file-policy';
 import type { ShareRecipient } from './file.types';
@@ -19,7 +21,7 @@ export class FileLibraryService {
 
   async checkName(userId: string, value: string, folderId: string | null) {
     const name = validateFileName(value);
-    if (folderId && !await this.prisma.folder.findFirst({ where: { id: folderId, ownerId: userId } })) throw new NotFoundException('No se encontró la carpeta.');
+    if (folderId) userId = (await folderAccess(this.prisma, folderId, userId, true)).folder.ownerId;
     const conflict = await this.prisma.storedFile.findFirst({ where: { ownerId: userId, folderId, name, deletedAt: null } });
     if (conflict) nameConflict(conflict);
     return { available: true };
@@ -79,6 +81,21 @@ export class FileLibraryService {
     return this.prisma.filePermission.upsert({ where: { fileId_userId: { fileId: id, userId: recipient.userId } }, create: { fileId: id, userId: recipient.userId, role }, update: { role }, select: { userId: true, role: true } });
   }
 
+  async listPermissions(id: string, ownerId: string): Promise<ResourcePermission[]> {
+    const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId, deletedAt: null } });
+    if (!file) throw new NotFoundException('No se encontró el archivo.');
+    const grants = await this.prisma.filePermission.findMany({ where: { fileId: id }, include: { user: { select: { email: true, username: true } } } });
+    const direct: ResourcePermission[] = grants.map((grant) => ({ userId: grant.userId, email: grant.user.email, username: grant.user.username, role: grant.role, inherited: false, sourceId: file.id, sourceName: file.name }));
+    const inherited = file.folderId ? (await folderPermissionRows(this.prisma, file.folderId)).map((grant) => ({ ...grant, inherited: true })) : [];
+    return [...direct, ...inherited];
+  }
+
+  async updatePermission(id: string, ownerId: string, userId: string, role: FileRole): Promise<void> {
+    if (!await this.prisma.storedFile.findFirst({ where: { id, ownerId, deletedAt: null } })) throw new NotFoundException('No se encontró el archivo.');
+    const result = await this.prisma.filePermission.updateMany({ where: { fileId: id, userId }, data: { role } });
+    if (!result.count) throw new NotFoundException('No se encontró el permiso directo.');
+  }
+
   async revoke(id: string, ownerId: string, userId: string): Promise<void> {
     if (!await this.prisma.storedFile.findFirst({ where: { id, ownerId, deletedAt: null } })) throw new NotFoundException('No se encontró el archivo.');
     await this.prisma.filePermission.deleteMany({ where: { fileId: id, userId } });
@@ -86,10 +103,11 @@ export class FileLibraryService {
 
   async browse(userId: string, filters: LibraryFilters = {}) {
     const recent = filters.recent ? await this.prisma.fileVisit.findMany({ where: { userId }, orderBy: { openedAt: 'desc' }, select: { fileId: true }, take: 200 }) : null;
+    const folderIds = await accessibleFolderIds(this.prisma, userId);
     const files = await this.prisma.storedFile.findMany({
       where: {
         deletedAt: null, deletionPending: false,
-        OR: [{ ownerId: userId }, { permissions: { some: { userId } } }],
+        OR: [{ ownerId: userId }, { permissions: { some: { userId } } }, { folderId: { in: folderIds } }],
         ...(filters.shared ? { ownerId: { not: userId } } : filters.ownerId ? { ownerId: filters.ownerId } : {}),
         ...(filters.search ? { name: { contains: filters.search, mode: 'insensitive' as const } } : {}),
         ...(filters.kind === 'document' ? { AND: [{ OR: ['application/pdf', 'application/json', 'application/xml', 'application/msword', 'application/rtf', 'application/vnd.openxmlformats-officedocument', 'application/vnd.ms-', 'application/vnd.oasis'].map((prefix) => ({ contentType: { startsWith: prefix, mode: 'insensitive' as const } })) }] } : filters.kind ? { contentType: { startsWith: `${filters.kind}/` } } : {}),
@@ -100,12 +118,12 @@ export class FileLibraryService {
       include: { owner: { select: { id: true, name: true, email: true } }, folder: { select: { id: true, name: true } }, permissions: { where: { userId }, select: { role: true } }, visits: { where: { userId }, select: { openedAt: true } } },
       orderBy: { updatedAt: 'desc' },
     });
-    return files.map((file) => ({
+    return (await Promise.all(files.map(async (file) => ({
       id: file.id, name: file.name, contentType: file.contentType, sizeBytes: Number(file.sizeBytes), status: file.status,
       checksum: file.checksum, createdAt: file.createdAt.toISOString(), updatedAt: file.updatedAt.toISOString(), deletedAt: null,
       ownerId: file.ownerId, ownerName: file.owner?.name ?? file.owner?.email ?? '', folderId: file.folderId, folderName: file.folder?.name ?? null,
-      permission: file.ownerId === userId ? 'OWNER' : file.permissions[0]?.role ?? 'READER',
+      permission: file.ownerId === userId ? 'OWNER' : strongestRole(file.permissions[0]?.role ?? null, file.folderId ? await inheritedFolderRole(this.prisma, file.folderId, userId) : null) ?? 'READER',
       openedAt: file.visits[0]?.openedAt.toISOString() ?? null,
-    })).sort((a, b) => (b.openedAt ?? b.updatedAt).localeCompare(a.openedAt ?? a.updatedAt));
+    })))).sort((a, b) => (b.openedAt ?? b.updatedAt).localeCompare(a.openedAt ?? a.updatedAt));
   }
 }

@@ -13,6 +13,7 @@ import { Transform, type Readable } from 'node:stream';
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { PrismaService } from '../prisma/prisma.service';
+import { folderAccess } from '../folders/folder-policy';
 import { fileAccess, nameConflict, validateFileName } from './file-policy';
 import { FILE_STORAGE_CLIENTS, type FileStorageClients, type ProcessFileMessage, type StoredFileResponse, type UploadFileResult, type UploadLifecycle } from './file.types';
 
@@ -156,17 +157,9 @@ export class FilesService {
     lifecycle: UploadLifecycle = {},
   ): Promise<UploadFileResult> {
     const normalizedName = this.validateUpload(name, contentType, sizeBytes);
+    if (lifecycle.folderId) ownerId = (await folderAccess(this.prisma, lifecycle.folderId, ownerId, true)).folder.ownerId;
     const collision = await this.prisma.storedFile.findFirst({ where: { ownerId, folderId: lifecycle.folderId ?? null, name: normalizedName, deletedAt: null } });
     if (collision && collision.id !== lifecycle.replaceFileId) nameConflict(collision);
-    if (lifecycle.folderId) {
-      let folder: { id: string } | null;
-      try {
-        folder = await this.prisma.folder.findFirst({ where: { id: lifecycle.folderId, ownerId }, select: { id: true } });
-      } catch {
-        throw new ServiceUnavailableException('No fue posible validar la carpeta de destino.');
-      }
-      if (!folder) throw new NotFoundException('No se encontró la carpeta de destino.');
-    }
     lifecycle.signal?.throwIfAborted();
     const id = lifecycle.fileId ?? randomUUID();
     const s3Key = `files/${id}`;

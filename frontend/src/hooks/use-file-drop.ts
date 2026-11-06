@@ -31,7 +31,7 @@ export function useFileDrop({ folders, currentFolderId, enabled, onUpload }: Fil
     const over = (event: DragEvent) => {
       if (!isFileDrag(event)) return;
       event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = enabled ? 'copy' : 'none';
+      if (event.dataTransfer) event.dataTransfer.dropEffect = enabled && folders.find((folder) => folder.id === getTargetFolderId(event))?.permission !== 'READER' ? 'copy' : 'none';
       highlight(event);
     };
     const leave = (event: DragEvent) => {
@@ -46,7 +46,7 @@ export function useFileDrop({ folders, currentFolderId, enabled, onUpload }: Fil
       const folderId = getTargetFolderId(event) ?? currentFolderId;
       const files = Array.from(event.dataTransfer?.files ?? []);
       reset();
-      if (enabled && files.length > 0) onUpload(files, folderId);
+      if (enabled && files.length > 0 && folders.find((folder) => folder.id === folderId)?.permission !== 'READER') onUpload(files, folderId);
     };
     window.addEventListener('dragenter', enter, true);
     window.addEventListener('dragover', over, true);

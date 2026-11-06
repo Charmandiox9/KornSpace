@@ -12,6 +12,8 @@ export interface ShareRecipient {
 }
 
 export interface StoredFileResponse {
+  permission?: 'OWNER' | 'READER' | 'EDITOR';
+  ownerId?: string | null;
   id: string;
   name: string;
   contentType: string;

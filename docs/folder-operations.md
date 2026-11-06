@@ -1,14 +1,33 @@
-# Renombrado, eliminación y permisos de carpetas
+# Carpetas, archivos y permisos heredados
 
-- El propietario puede conceder y revocar editores mediante correo o usuario exacto. Las coincidencias ambiguas se rechazan. El editor modifica únicamente el nombre o elimina la carpeta vacía. No puede conceder permisos.
-- La concesión es explícita por carpeta, sin herencia. No concede acceso al contenido de archivos, cargas, comparticiones de archivos ni carpetas descendientes. Las carpetas concedidas aparecen en la raíz del editor como accesos, sin cambiar su padre persistido. Al abrirlas sólo se muestran sus propios metadatos.
-- `PATCH /api/folders/:id` admite sólo `name`. No existe operación de movimiento: `parentId` se rechaza. Renombrar conserva el padre y no introduce ciclos. Los nombres se recortan, permiten 1–255 caracteres y excluyen separadores y controles. Los duplicados exactos por propietario y ubicación devuelven 409; nunca se reemplazan carpetas.
-- `DELETE /api/folders/:id` elimina definitivamente sólo carpetas sin archivos ni subcarpetas. Los archivos en papelera o con borrado pendiente también cuentan como contenido. No se recorren ni modifican descendientes, objetos S3 o comparticiones de archivos.
-- La comprobación de acceso, comprobación de contenido y eliminación son una transacción. Las claves foráneas con RESTRICT impiden el borrado si una carga o subcarpeta concurrente crea una referencia. Los permisos de la propia carpeta se eliminan en la misma transacción mediante CASCADE. Ante fallos no se elimina contenido; puede reintentarse.
-- `GET /api/folders/:id/editors` lista los editores para su propietario. `PUT /api/folders/:id/editors` recibe `{ "identifier": "usuario o correo" }` y devuelve `userId`. `DELETE /api/folders/:id/editors/:userId` revoca el permiso; ambas operaciones requieren propietario.
-- Respuestas: 400 para entrada inválida, 401 sin sesión, 404 para carpeta inexistente o no autorizada, 409 para nombre duplicado o carpeta con contenido, 503 para fallo recuperable. El borrado correcto devuelve 204.
-- La interfaz solicita confirmación para borrar, enfoca Cancelar inicialmente y conserva el diálogo con un mensaje de error si falla. Ofrece nombre y mensajes traducidos al español e inglés.
+## Roles y herencia
 
-## Migración
+El propietario conserva el control de compartición. Puede conceder lectura (`READER`) o edición (`EDITOR`) por correo o usuario exacto, y listar, modificar o revocar permisos directos. Los editores pueden modificar nombres, crear contenido en carpetas autorizadas y enviar archivos a papelera. El borrado definitivo y la restauración de archivos mantienen su política de propietario.
 
-`20261106180000_folder_editor_permissions` añade únicamente la tabla de permisos, su índice y claves foráneas. No modifica migraciones previas ni archivos existentes. Se preparó con `prisma migrate diff` y se aplicó con `prisma migrate dev --name folder_editor_permissions` en la base configurada. `prisma migrate status` confirmó que el esquema está actualizado.
+Los permisos de una carpeta se heredan dinámicamente por todos los archivos y carpetas descendientes, incluidos los creados después. No se copian filas de permisos a cada descendiente. Los cambios y revocaciones se reflejan en las siguientes solicitudes.
+
+Entre permisos directos y heredados prevalece el mayor: propietario, editor, lector. Un permiso directo de lector no reduce una edición heredada. Al revocar un permiso directo puede permanecer acceso por otra carpeta antecesora. Los permisos heredados se administran en la carpeta que los concede, identificada en el modal. Los nuevos elementos pertenecen al propietario de la carpeta, incluso si los crea un editor.
+
+La API aplica esta política en navegación, descarga/vista previa, búsquedas, nombres, cargas, creación de subcarpetas y modificaciones. Los lectores reciben 403 al intentar escribir; sin acceso se devuelve 404. La jerarquía se recorre con detección de ciclos y validación de propietario.
+
+## API y modales de compartir
+
+- `GET /api/files/:id/permissions` y `GET /api/folders/:id/permissions`: personas con acceso directo y heredado, rol y carpeta de origen. Sólo el propietario.
+- `PUT .../permissions`: concede acceso por identificador exacto y rol. Los archivos conservan confirmación de destinatario mediante `recipientId`.
+- `PATCH .../permissions/:userId`: cambia un permiso directo existente (`role`).
+- `DELETE .../permissions/:userId`: revoca un permiso directo.
+- Las rutas de carpetas `/editors` se conservan como alias para compatibilidad; sin rol, la concesión antigua sigue siendo edición.
+
+Ambos diálogos muestran las personas existentes y su rol al abrirse. Los permisos directos se cambian o revocan allí. Los heredados muestran su origen y un enlace para administrarlos en la carpeta correspondiente.
+
+## Renombrado, borrado y consistencia
+
+`PATCH /api/folders/:id` acepta sólo nombre. No permite movimiento ni `parentId`, por lo que no introduce ciclos. Los nombres permiten 1–255 caracteres recortados, sin separadores ni controles. Los duplicados exactos por propietario y ubicación devuelven 409.
+
+`DELETE /api/folders/:id` exige propietario o editor y elimina sólo carpetas vacías. Los archivos activos, en papelera o pendientes de borrado, y todas las subcarpetas cuentan como contenido y causan 409. No modifica descendientes, objetos S3 ni comparticiones de archivos.
+
+La autorización, comprobación de contenido y eliminación se realizan en una transacción. Las claves foráneas RESTRICT impiden borrar con referencias concurrentes. Los permisos de la carpeta se eliminan en la misma transacción mediante CASCADE. Ante un fallo recuperable se conserva el contenido y puede reintentarse. El diálogo confirma la eliminación, enfoca Cancelar y conserva los errores para reintentar.
+
+## Migraciones
+
+`20261106180000_folder_editor_permissions` creó la tabla de permisos. `20261106201256_inherited_folder_roles` añade el rol con valor predeterminado EDITOR, preservando los editores previamente concedidos. Ambas se aplicaron mediante Prisma Migrate sin editar migraciones anteriores.

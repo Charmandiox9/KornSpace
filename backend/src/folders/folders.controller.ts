@@ -1,12 +1,13 @@
 import { Body, Controller, Delete, HttpCode, Param, Patch, Put, Get, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import { IsOptional, IsString, IsUUID, MaxLength, MinLength, Matches } from 'class-validator';
-import { ApiNoContentResponse, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiQuery, ApiBadRequestResponse, ApiTags, ApiUnauthorizedResponse, ApiServiceUnavailableResponse } from '@nestjs/swagger';
+import { ApiForbiddenResponse, ApiNoContentResponse, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiQuery, ApiBadRequestResponse, ApiTags, ApiUnauthorizedResponse, ApiServiceUnavailableResponse } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUserContext } from '../auth/auth.types';
 import { SessionJwtGuard } from '../auth/session-jwt.guard';
 import type { StoredFileResponse } from '../files/file.types';
 import type { FolderContentsResponse, FolderResponse } from './folder.types';
+import { PermissionRoleDto, ResourcePermissionDto } from './permission.dto';
 import { FoldersService } from './folders.service';
 
 export class RenameFolderDto {
@@ -39,12 +40,15 @@ class FolderResponseDto implements FolderResponse {
   @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() name!: string;
   @ApiProperty({ format: 'uuid' }) ownerId!: string;
+  @ApiPropertyOptional({ enum: ['OWNER', 'READER', 'EDITOR'] }) permission?: 'OWNER' | 'READER' | 'EDITOR';
   @ApiProperty({ format: 'uuid', nullable: true }) parentId!: string | null;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
 }
 
 class FolderFileResponseDto implements StoredFileResponse {
+  @ApiPropertyOptional({ enum: ['OWNER', 'READER', 'EDITOR'] }) permission?: 'OWNER' | 'READER' | 'EDITOR';
+  @ApiPropertyOptional({ type: String, format: 'uuid', nullable: true }) ownerId?: string | null;
   @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() name!: string;
   @ApiProperty() contentType!: string;
@@ -62,14 +66,10 @@ class FolderContentsResponseDto implements FolderContentsResponse {
   @ApiProperty({ type: FolderFileResponseDto, isArray: true }) files!: StoredFileResponse[];
 }
 
-class FolderEditorDto {
+class FolderEditorDto extends PermissionRoleDto {
+  @IsOptional() role: 'READER' | 'EDITOR' = 'EDITOR';
   @ApiProperty({ description: 'Correo o usuario exacto del editor.' })
   @IsString() @MinLength(3) @MaxLength(255) identifier!: string;
-}
-class FolderEditorDetailsDto {
-  @ApiProperty({ format: 'uuid' }) userId!: string;
-  @ApiProperty() email!: string;
-  @ApiProperty({ type: String, nullable: true }) username!: string | null;
 }
 class FolderEditorResponseDto {
   @ApiProperty({ format: 'uuid' }) userId!: string;
@@ -78,6 +78,7 @@ class FolderEditorResponseDto {
 @Controller('folders')
 @UseGuards(SessionJwtGuard)
 @ApiTags('Folders')
+@ApiForbiddenResponse({ description: 'Los lectores no pueden modificar carpetas ni su contenido.' })
 @ApiUnauthorizedResponse({ description: 'Sesión ausente o inválida.' })
 @ApiBadRequestResponse({ description: 'Identificadores o cuerpo inválidos.' })
 @ApiServiceUnavailableResponse({ description: 'Operación fallida; se puede reintentar.' })
@@ -105,23 +106,30 @@ export class FoldersController {
     return this.foldersService.remove(id, user.userId);
   }
 
-  @Get(':id/editors')
+  @Get([':id/editors', ':id/permissions'])
   @ApiOperation({ summary: 'Lista editores de una carpeta propia' })
-  @ApiOkResponse({ type: FolderEditorDetailsDto, isArray: true })
+  @ApiOkResponse({ type: ResourcePermissionDto, isArray: true })
   @ApiNotFoundResponse({ description: 'Carpeta inexistente o no propia.' })
   listEditors(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext) {
     return this.foldersService.listEditors(id, user.userId);
   }
 
-  @Put(':id/editors')
-  @ApiOperation({ summary: 'Concede edición de los metadatos de una carpeta; sólo propietario, sin herencia a contenido' })
+  @Put([':id/editors', ':id/permissions'])
+  @ApiOperation({ summary: 'Concede lectura o edición a la carpeta y sus descendientes; sólo propietario' })
   @ApiOkResponse({ type: FolderEditorResponseDto })
   @ApiNotFoundResponse({ description: 'Carpeta no propia o destinatario no único.' })
   grant(@Param('id', new ParseUUIDPipe()) id: string, @Body() input: FolderEditorDto, @CurrentUser() user: AuthenticatedUserContext) {
-    return this.foldersService.grantEditor(id, user.userId, input.identifier);
+    return this.foldersService.grantEditor(id, user.userId, input.identifier, input.role);
   }
 
-  @Delete(':id/editors/:userId') @HttpCode(204)
+  @Patch(':id/permissions/:userId') @HttpCode(204)
+  @ApiOperation({ summary: 'Cambia un permiso directo de carpeta; afecta sus descendientes' })
+  @ApiNoContentResponse() @ApiNotFoundResponse({ description: 'Carpeta no propia o permiso directo inexistente.' })
+  updatePermission(@Param('id', new ParseUUIDPipe()) id: string, @Param('userId', new ParseUUIDPipe()) targetId: string, @Body() input: PermissionRoleDto, @CurrentUser() user: AuthenticatedUserContext) {
+    return this.foldersService.updatePermission(id, user.userId, targetId, input.role);
+  }
+
+  @Delete([':id/editors/:userId', ':id/permissions/:userId']) @HttpCode(204)
   @ApiNoContentResponse({ description: 'Permiso revocado.' })
   @ApiOperation({ summary: 'Revoca editor de carpeta; sólo propietario' })
   @ApiNotFoundResponse({ description: 'Carpeta no propia.' })

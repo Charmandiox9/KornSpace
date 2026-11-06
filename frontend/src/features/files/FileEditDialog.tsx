@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ShareAccessList } from './ShareAccessList';
 import { sileo } from 'sileo';
 import { authenticatedFetch } from '@/lib/api-client';
 import type { FileEditDialogProps, ResolvedShareRecipient } from '@/types';
@@ -61,6 +62,7 @@ export function FileEditDialog({ file, mode, copy, onClose, onSaved }: FileEditD
   }
   return <dialog ref={dialog} onCancel={(event) => { if (busy) event.preventDefault(); else onClose(); }} aria-labelledby="edit-file-title" className="fixed inset-0 m-auto w-[min(92vw,460px)] rounded-2xl border border-line bg-surface p-6 text-ink shadow-panel backdrop:bg-black/60">
     <h2 id="edit-file-title" className="mb-5 text-lg font-semibold">{conflictId ? copy.fileNameConflict : mode === 'rename' ? copy.renameFile : copy.shareFile}</h2>
+    {mode === 'share' && <ShareAccessList resourceId={file.id} kind="files" copy={copy} onChanged={onSaved} />}
     <form onSubmit={(event) => { event.preventDefault(); void save(); }} className="grid gap-4">
       <label className="grid gap-2 text-xs text-muted">{mode === 'rename' ? copy.fileName : copy.shareEmail}<input ref={input} type="text" autoComplete="off" aria-describedby={mode === 'share' ? 'share-recipient-status' : undefined} required maxLength={255} disabled={busy} value={value} onChange={(event) => { setValue(event.target.value); setConflictId(null); setError(''); }} className="min-h-11 rounded-xl border border-line bg-raised px-3 text-sm text-ink" /></label>
       {mode === 'share' && <div id="share-recipient-status" role="status" aria-live="polite" className="text-xs text-muted">

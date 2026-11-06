@@ -1,7 +1,11 @@
 export interface TranslationCatalog {
-  folderEditors: string;
+  sharedPeople: string;
+  noSharedPeople: string;
+  accessRole: string;
+  inheritedAccess: string;
+  manageInheritedAccess: string;
+
   revokeFolderEditor: string;
-  folderMetadataOnly: string;
   renameFolder: string;
   deleteFolder: string;
   shareFolder: string;

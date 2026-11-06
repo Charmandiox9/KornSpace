@@ -99,12 +99,6 @@ export interface UsernameSetupPageProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
-export interface FolderEditor {
-  userId: string;
-  email: string;
-  username: string | null;
-}
-
 export interface FolderActionSelection {
   folder: StoredFolder;
   action: 'rename' | 'delete' | 'share';
@@ -177,4 +171,12 @@ export interface SessionProviderProps {
 
 export interface RootLayoutProps {
   children: ReactNode;
+}
+
+export interface ShareAccessListProps {
+  resourceId: string;
+  kind: 'files' | 'folders';
+  copy: TranslationCatalog;
+  refreshKey?: number;
+  onChanged: () => Promise<void>;
 }

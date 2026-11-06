@@ -5,6 +5,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUserContext } from '../auth/auth.types';
 import { SessionJwtGuard } from '../auth/session-jwt.guard';
 import { FileLibraryService } from './file-library.service';
+import { PermissionRoleDto, ResourcePermissionDto } from '../folders/permission.dto';
 import { FilesService } from './files.service';
 import type { ShareRecipient } from './file.types';
 
@@ -70,6 +71,12 @@ export class FileLibraryController {
 
   @Get(':id/recipients') @ApiOperation({ summary: 'Resuelve correo o usuario exacto para confirmar el destinatario; sólo el propietario' }) @ApiOkResponse({ type: ShareRecipientDto })
   recipient(@Param('id', new ParseUUIDPipe()) id: string, @Query() query: RecipientLookupDto, @CurrentUser() user: AuthenticatedUserContext) { return this.library.resolveRecipient(id, user.userId, query.identifier); }
+
+  @Get(':id/permissions') @ApiOperation({ summary: 'Lista permisos directos y heredados; sólo propietario' }) @ApiOkResponse({ type: ResourcePermissionDto, isArray: true })
+  listPermissions(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext) { return this.library.listPermissions(id, user.userId); }
+
+  @Patch(':id/permissions/:userId') @HttpCode(204) @ApiOperation({ summary: 'Actualiza un permiso directo; la herencia se modifica en la carpeta de origen' }) @ApiNoContentResponse()
+  updatePermission(@Param('id', new ParseUUIDPipe()) id: string, @Param('userId', new ParseUUIDPipe()) target: string, @Body() body: PermissionRoleDto, @CurrentUser() user: AuthenticatedUserContext) { return this.library.updatePermission(id, user.userId, target, body.role); }
 
   @Put(':id/permissions') @ApiOperation({ summary: 'Concede lectura o edición por correo o usuario; sólo el propietario' }) @ApiOkResponse({ type: PermissionResponseDto })
   @ApiConflictResponse({ description: 'El destinatario ya no coincide con recipientId. Resolver de nuevo antes de confirmar.' })

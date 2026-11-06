@@ -76,6 +76,8 @@ function harness() {
     recipientQueries += 1;
     return recipients.filter((user) => user.id !== where.id.not && (where.email ? user.email.toLowerCase() === where.email.equals.toLowerCase() : user.username.toLowerCase() === where.username?.equals.toLowerCase()));
   } }, filePermission: {
+    findMany: async () => Array.from(grants, ([userId, role]) => ({ userId, role, user: { email: recipients.find((user) => user.id === userId)?.email ?? userId + '@example.test', username: recipients.find((user) => user.id === userId)?.username ?? userId } })),
+    updateMany: async ({ where, data }: { where: { userId: string }; data: { role: 'READER' | 'EDITOR' } }) => { if (!grants.has(where.userId)) return { count: 0 }; grants.set(where.userId, data.role); return { count: 1 }; },
     upsert: async ({ create }: { create: { userId: string; role: 'READER' | 'EDITOR' } }) => { grants.set(create.userId, create.role); return { userId: create.userId, role: create.role }; },
     deleteMany: async ({ where }: { where: { userId: string } }) => { grants.delete(where.userId); return { count: 1 }; },
   }, storedFile: delegate, fileVisit: { upsert: async () => { visits += 1; } } } as unknown as PrismaService;
@@ -147,6 +149,13 @@ test('file REST rename validates names, denies readers and permits editors with 
     assert.equal((await send('denied.txt', recipient.id)).status, 403);
     assert.equal((await grant({ email: recipient.email, role: 'EDITOR' })).status, 200);
     assert.equal((await send('allowed.txt', recipient.id)).status, 200);
+    const permissionList = await fetch(url + '/permissions', { headers: { 'x-test-user': 'owner' } });
+    assert.equal(permissionList.status, 200);
+    const listed = await permissionList.json() as Array<{ userId: string; role: string }>;
+    assert.equal(listed.find((row) => row.userId === recipient.id)?.role, 'EDITOR');
+    assert.equal((await fetch(url + '/permissions', { headers: { 'x-test-user': recipient.id } })).status, 404);
+    assert.equal((await fetch(url + '/permissions/' + recipient.id, { method: 'PATCH', headers: { 'content-type': 'application/json', 'x-test-user': 'owner' }, body: JSON.stringify({ role: 'READER' }) })).status, 204);
+    assert.equal((await send('denied-again.txt', recipient.id)).status, 403);
     assert.equal((await fetch(`${url}/permissions/${recipient.id}`, { method: 'DELETE', headers: { 'x-test-user': 'owner' } })).status, 204);
     assert.equal((await fetch(url, { headers: { 'x-test-user': recipient.id } })).status, 404);
     assert.equal((await grant({ identifier: recipient.username, email: recipient.email, role: 'READER' })).status, 400);

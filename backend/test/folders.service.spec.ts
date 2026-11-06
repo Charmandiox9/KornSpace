@@ -90,6 +90,7 @@ test('folder owners manage editors; outsiders and revoked editors cannot rename 
   assert.deepEqual(sharedRoot.folders.map((folder) => folder.id), [folderId]);
   const sharedFolder = await h.service.listContents(editorId, folderId);
   assert.equal(sharedFolder.folder?.id, folderId);
+  assert.equal(sharedFolder.folder?.permission, 'EDITOR');
   assert.deepEqual(sharedFolder.files, []);
   assert.deepEqual(sharedFolder.folders, []);
   await h.service.rename(folderId, editorId, ' Updated ');
@@ -130,4 +131,55 @@ test('folder mutations reject duplicate names and recover from database errors a
   h.failDelete(null);
   await h.service.remove(folderId, 'owner');
   assert.equal(h.folders.length, 1);
+});
+
+
+test('folder roles inherit through descendants and future folders; strongest access wins and revocation is immediate', async () => {
+  const { inheritanceHarness } = await import('./permission-inheritance.harness');
+  const { fileAccess } = await import('../src/files/file-policy');
+  const { ForbiddenException } = await import('@nestjs/common');
+  const h = inheritanceHarness();
+  h.folderGrants.set(h.rootId + ':peer', 'READER');
+  assert.equal((await fileAccess(h.prisma, h.fileId, 'peer')).role, 'READER');
+  const contents = await h.service.listContents('peer', h.childId);
+  assert.equal(contents.files[0].id, h.fileId);
+  assert.equal(contents.files[0].permission, 'READER');
+  await assert.rejects(h.service.rename(h.childId, 'peer', 'Denied'), ForbiddenException);
+  await assert.rejects(h.service.remove(h.childId, 'peer'), ForbiddenException);
+  await assert.rejects(h.service.create('peer', 'Denied', h.childId), ForbiddenException);
+  await assert.rejects(fileAccess(h.prisma, h.fileId, 'peer', true), ForbiddenException);
+  h.folderGrants.set(h.rootId + ':peer', 'EDITOR');
+  h.fileGrants.set('peer', 'READER');
+  assert.equal((await fileAccess(h.prisma, h.fileId, 'peer', true)).role, 'EDITOR');
+  assert.equal((await h.library.browse('peer', { shared: true }))[0]?.permission, 'EDITOR');
+  await h.service.rename(h.childId, 'peer', 'Edited');
+  const created = await h.service.create('peer', 'Future', h.childId);
+  assert.equal(created.ownerId, 'owner');
+  assert.equal((await h.service.listContents('peer', created.id)).folder?.permission, 'EDITOR');
+  h.folderGrants.delete(h.rootId + ':peer');
+  assert.equal((await fileAccess(h.prisma, h.fileId, 'peer')).role, 'READER');
+  await assert.rejects(fileAccess(h.prisma, h.fileId, 'peer', true), ForbiddenException);
+  h.fileGrants.clear();
+  assert.deepEqual(await h.library.browse('peer'), []);
+  await assert.rejects(fileAccess(h.prisma, h.fileId, 'peer'), NotFoundException);
+  await assert.rejects(h.service.listContents('peer', h.childId), NotFoundException);
+});
+
+test('sharing lists direct and inherited users with their source and rejects cyclic hierarchies', async () => {
+  const { inheritanceHarness } = await import('./permission-inheritance.harness');
+  const { ServiceUnavailableException } = await import('@nestjs/common');
+  const h = inheritanceHarness();
+  h.folderGrants.set(h.rootId + ':reader', 'READER');
+  h.folderGrants.set(h.childId + ':editor', 'EDITOR');
+  h.fileGrants.set('direct', 'READER');
+  const permissions = await h.library.listPermissions(h.fileId, 'owner');
+  assert.equal(permissions.find((row) => row.userId === 'direct')?.inherited, false);
+  assert.equal(permissions.find((row) => row.userId === 'reader')?.sourceId, h.rootId);
+  assert.equal(permissions.find((row) => row.userId === 'editor')?.role, 'EDITOR');
+  const folderPermissions = await h.service.listEditors(h.childId, 'owner');
+  assert.equal(folderPermissions.find((row) => row.userId === 'reader')?.inherited, true);
+  assert.equal(folderPermissions.find((row) => row.userId === 'editor')?.inherited, false);
+  await assert.rejects(h.library.listPermissions(h.fileId, 'reader'), NotFoundException);
+  h.folders[0].parentId = h.childId;
+  await assert.rejects(h.service.listContents('reader', h.childId), ServiceUnavailableException);
 });

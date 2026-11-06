@@ -67,5 +67,5 @@ export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: Li
     </div>
     <div className="flex gap-2"><button type="button" aria-pressed={showRecent} className={`rounded-lg px-4 py-2 text-xs font-semibold ${showRecent ? 'bg-accent-soft text-accent' : 'text-muted'}`} onClick={() => setShowRecent(true)}>{copy.recentFiles}</button><button type="button" aria-pressed={!showRecent} className={`rounded-lg px-4 py-2 text-xs font-semibold ${!showRecent ? 'bg-accent-soft text-accent' : 'text-muted'}`} onClick={() => setShowRecent(false)}>{copy.allFiles}</button></div>
   </div>;
-  return <FilesPage {...props} files={files} folders={search || kind || owner || modified || location || sharedOnly ? [] : props.folders} currentFolder={null} currentFolderId={null} breadcrumbs={[]} title={sharedOnly ? copy.sharedWithMe : copy.homeWelcome} toolbar={toolbar} isLoading={busy} notice={error || props.notice} />;
+  return <FilesPage {...props} files={files} folders={search || kind || owner || modified || location ? [] : sharedOnly ? props.folders.filter((folder) => folder.ownerId !== props.userId) : props.folders} currentFolder={null} currentFolderId={null} breadcrumbs={[]} title={sharedOnly ? copy.sharedWithMe : copy.homeWelcome} toolbar={toolbar} isLoading={busy} notice={error || props.notice} />;
 }

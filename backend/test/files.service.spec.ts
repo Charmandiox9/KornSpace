@@ -47,7 +47,9 @@ function createHarness(options: TestOptions = {}) {
   } as unknown as S3Client;
   const sqs = { send: async (): Promise<unknown> => ({}) } as unknown as SQSClient;
   const prisma = {
+    folderPermission: { findUnique: async () => null },
     folder: {
+      findUnique: async ({ where }: { where: { id: string } }) => where.id === 'folder-1' && options.folderOwnerId ? { id: 'folder-1', ownerId: options.folderOwnerId, parentId: null } : null,
       findFirst: async ({ where }: { where: { id: string; ownerId: string } }) =>
         where.id === 'folder-1' && where.ownerId === options.folderOwnerId ? { id: 'folder-1' } : null,
     },
@@ -216,4 +218,21 @@ test('FilesService downloads only available files owned by the requester and map
   stored = file;
   failGet = true;
   await assert.rejects(service.getDownload(file.id, 'owner-1'), ServiceUnavailableException);
+});
+
+
+test('uploads into inherited editor folders retain the folder owner; inherited readers never send bytes', async () => {
+  const { inheritanceHarness } = await import('./permission-inheritance.harness');
+  const { ForbiddenException } = await import('@nestjs/common');
+  const h = inheritanceHarness();
+  let sent = 0;
+  const service = new FilesService(h.prisma, { s3: { send: async (command: unknown) => { sent += 1; if (command instanceof PutObjectCommand) { assert.ok(command.input.Body instanceof Readable); for await (const chunk of command.input.Body) { void chunk; } } return {}; } } as unknown as S3Client, sqs: {} as SQSClient });
+  h.folderGrants.set(h.rootId + ':peer', 'READER');
+  await assert.rejects(service.upload(Readable.from('test'), 'new.txt', 'text/plain', 4, 'peer', { folderId: h.childId }), ForbiddenException);
+  assert.equal(sent, 0);
+  h.folderGrants.set(h.rootId + ':peer', 'EDITOR');
+  const uploaded = await service.upload(Readable.from('test'), 'new.txt', 'text/plain', 4, 'peer', { folderId: h.childId });
+  assert.ok(sent > 0);
+  assert.equal(h.files.find((file) => file.id === uploaded.file.id)?.ownerId, 'owner');
+  assert.equal(h.files.find((file) => file.id === uploaded.file.id)?.folderId, h.childId);
 });
