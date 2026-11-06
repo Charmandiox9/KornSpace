@@ -122,6 +122,9 @@ test('session navigation and multiple uploads in a real browser with a simulated
     let nextFileId = 0;
     const uploadDestinations = [];
     const dropFolder = { id: 'drop-target', name: 'Drop destination', ownerId: user.id, parentId: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
+    const emptyFolder = { ...dropFolder, id: 'empty-folder', name: 'Empty folder' };
+    let emptyFolderExists = true;
+    let folderDeleteAttempts = 0;
     const uploads = [];
     const permissionWrites = [];
     const peer = { userId: '44444444-4444-4444-8444-444444444444', username: 'recipient', email: 'peer@example.test', name: 'Recipient' };
@@ -181,6 +184,14 @@ test('session navigation and multiple uploads in a real browser with a simulated
         else if (event.request.method === 'POST' && url.pathname.endsWith('/access')) {
           const id = url.pathname.split('/').at(-2); const file = records.find(file => file.id === id); if (file) file.openedAt = new Date().toISOString(); body = {};
         }
+        else if (url.pathname === '/api/folders/empty-folder' && event.request.method === 'PATCH') {
+          emptyFolder.name = JSON.parse(event.request.postData).name; body = emptyFolder;
+        }
+        else if (url.pathname === '/api/folders/empty-folder' && event.request.method === 'DELETE') {
+          folderDeleteAttempts += 1;
+          if (folderDeleteAttempts === 1) { status = 503; body = { message: 'Retry' }; }
+          else { emptyFolderExists = false; status = 204; body = null; }
+        }
         else if (event.request.method === 'PATCH') {
           const id = url.pathname.split('/').at(-1); const requestBody = JSON.parse(event.request.postData ?? '{}'); const file = records.find(file => file.id === id);
           const collision = records.find(other => other.id !== id && other.name === requestBody.name && other.folderId === file?.folderId);
@@ -189,7 +200,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
           else status = 404;
         }
         else if (url.pathname === '/api/files/trash' && event.request.method === 'GET') { body = trashedRecords; }
-        else if (url.pathname === '/api/folders') { listChecks += 1; const folderId = url.searchParams.get('parentId'); body = { folder: folderId ? dropFolder : null, breadcrumbs: [], folders: folderId ? [] : [dropFolder], files: records.filter(record => (record.folderId ?? null) === folderId) }; }
+        else if (url.pathname === '/api/folders') { listChecks += 1; const folderId = url.searchParams.get('parentId'); body = { folder: folderId ? dropFolder : null, breadcrumbs: [], folders: folderId ? [] : [dropFolder, ...(emptyFolderExists ? [emptyFolder] : [])], files: records.filter(record => (record.folderId ?? null) === folderId) }; }
         else if (event.request.method === 'GET' && /^\/api\/files\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith('/trash')) { rawBody = '<script>window.previewExecuted = true</script> KornSpace text preview'; }
         else if (url.pathname.startsWith('/api/files/uploads/')) {
           const id = url.pathname.split('/').at(-1);
@@ -359,6 +370,30 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await until(() => evaluate('document.querySelector("[aria-labelledby=files-heading]").textContent.includes("folder-drop.txt")'), 'file stored in target folder');
       await evaluate('document.querySelector("nav[aria-label=Ubicación] button").click()');
       await until(() => evaluate('document.querySelector("#workspace-title").textContent === "Mi Unidad"'), 'return to root');
+    });
+
+    await t.test('folder dialogs rename, cancel deletion and retain errors for retry', async () => {
+      const openDelete = () => evaluate(`document.querySelector('[aria-label="Eliminar carpeta vacía: Renamed folder"]').click()`);
+      await until(() => evaluate(`Boolean(document.querySelector('[aria-label="Renombrar carpeta: Empty folder"]'))`), 'folder actions');
+      await evaluate(`document.querySelector('[aria-label="Renombrar carpeta: Empty folder"]').click()`);
+      await until(() => evaluate('Boolean(document.querySelector("dialog[open] input"))'), 'folder rename dialog');
+      assert.equal(await evaluate('document.activeElement === document.querySelector("dialog input")'), true);
+      await evaluate(`(() => { const input = document.querySelector('dialog input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Renamed folder'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await evaluate('document.querySelector("dialog form").requestSubmit()');
+      await until(() => evaluate('!document.querySelector("dialog[open]")'), 'folder renamed');
+      await until(() => evaluate(`Boolean(document.querySelector('[aria-label="Eliminar carpeta vacía: Renamed folder"]'))`), 'renamed folder action');
+      await openDelete();
+      await until(() => evaluate('Boolean(document.querySelector("dialog[open]"))'), 'folder confirmation');
+      assert.equal(await evaluate('document.activeElement.textContent'), 'Cancelar');
+      await evaluate('document.querySelector("dialog button[type=button]").click()');
+      assert.equal(folderDeleteAttempts, 0);
+      await openDelete();
+      await evaluate('document.querySelector("dialog form").requestSubmit()');
+      await until(() => evaluate('Boolean(document.querySelector("dialog [role=alert]"))'), 'folder deletion error');
+      assert.equal(emptyFolderExists, true);
+      await evaluate('document.querySelector("dialog form").requestSubmit()');
+      await until(() => evaluate('!document.querySelector("dialog[open]")'), 'folder deletion retry');
+      assert.equal(emptyFolderExists, false);
     });
 
     await t.test('renames a file through an accessible dialog', async () => {

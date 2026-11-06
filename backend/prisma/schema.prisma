@@ -19,6 +19,7 @@ model User {
   updatedAt     DateTime     @updatedAt
   files         StoredFile[]
   folders       Folder[]
+  folderPermissions FolderPermission[]
   filePermissions FilePermission[]
   fileVisits FileVisit[]
 }
@@ -63,6 +64,7 @@ model Folder {
   owner     User         @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   parentId  String?      @db.Uuid
   parent    Folder?      @relation("FolderTree", fields: [parentId, ownerId], references: [id, ownerId], onDelete: Restrict)
+  permissions FolderPermission[]
   children  Folder[]     @relation("FolderTree")
   files     StoredFile[]
 
@@ -95,4 +97,13 @@ model FileVisit {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@id([fileId, userId])
   @@index([userId, openedAt])
+}
+
+model FolderPermission {
+  folderId String @db.Uuid
+  userId String @db.Uuid
+  folder Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([folderId, userId])
+  @@index([userId, folderId])
 }

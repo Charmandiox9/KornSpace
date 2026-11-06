@@ -18,7 +18,9 @@ function createHarness() {
   const files: Array<Record<string, unknown>> = [];
   let nextId = 0;
   const prisma = {
+    folderPermission: { findMany: async () => [], findUnique: async () => null },
     folder: {
+      findUnique: async ({ where }: { where: { id: string } }) => folders.find((folder) => folder.id === where.id) ?? null,
       findFirst: async ({ where }: { where: { id: string; ownerId: string } }) =>
         folders.find((folder) => folder.id === where.id && folder.ownerId === where.ownerId) ?? null,
       findMany: async ({ where }: { where: { ownerId: string; parentId: string | null } }) =>
@@ -72,4 +74,60 @@ test('FoldersService isolates owners and rejects missing parents, invalid names,
   await assert.rejects(service.create('owner-1', ' bad/name ', null), BadRequestException);
   await assert.rejects(service.create('owner-1', 'Lost', 'missing-folder'), NotFoundException);
   assert.equal((await service.listContents('owner-1', null)).folders[0]?.id, ownParent.id);
+});
+
+
+test('folder owners manage editors; outsiders and revoked editors cannot rename or delete', async () => {
+  const { folderMutationHarness, folderId, editorId } = await import('./folder-mutation.harness');
+  const h = folderMutationHarness();
+  await assert.rejects(h.service.rename(folderId, 'stranger', 'Denied'), NotFoundException);
+  await assert.rejects(h.service.remove(folderId, 'stranger'), NotFoundException);
+  await assert.rejects(h.service.grantEditor(folderId, 'stranger', 'editor'), NotFoundException);
+  await h.service.grantEditor(folderId, 'owner', 'editor');
+  assert.equal((await h.service.listEditors(folderId, 'owner'))[0].userId, editorId);
+  await assert.rejects(h.service.listEditors(folderId, editorId), NotFoundException);
+  const sharedRoot = await h.service.listContents(editorId, null);
+  assert.deepEqual(sharedRoot.folders.map((folder) => folder.id), [folderId]);
+  const sharedFolder = await h.service.listContents(editorId, folderId);
+  assert.equal(sharedFolder.folder?.id, folderId);
+  assert.deepEqual(sharedFolder.files, []);
+  assert.deepEqual(sharedFolder.folders, []);
+  await h.service.rename(folderId, editorId, ' Updated ');
+  assert.equal(h.folders[0].name, 'Updated');
+  await assert.rejects(h.service.rename(folderId, editorId, 'bad/name'), BadRequestException);
+  await h.service.revokeEditor(folderId, 'owner', editorId);
+  await assert.rejects(h.service.remove(folderId, editorId), NotFoundException);
+  await h.service.grantEditor(folderId, 'owner', 'editor');
+  await h.service.remove(folderId, editorId);
+  assert.equal(h.folders.length, 0);
+  assert.equal(h.editors.size, 0);
+});
+
+test('folder deletion rejects descendants and files including trash without modifying relationships', async () => {
+  const { folderMutationHarness, folderId } = await import('./folder-mutation.harness');
+  const h = folderMutationHarness();
+  h.files.push({ folderId, deletedAt: new Date() });
+  await assert.rejects(h.service.remove(folderId, 'owner'), ConflictException);
+  assert.equal(h.files.length, 1); assert.equal(h.folders.length, 1);
+  h.files.length = 0;
+  h.folders.push({ ...h.folders[0], id: 'child', parentId: folderId });
+  await assert.rejects(h.service.remove(folderId, 'owner'), ConflictException);
+  assert.equal(h.folders.length, 2);
+});
+
+test('folder mutations reject duplicate names and recover from database errors and concurrent inserts', async () => {
+  const { folderMutationHarness, folderId } = await import('./folder-mutation.harness');
+  const { ServiceUnavailableException } = await import('@nestjs/common');
+  const h = folderMutationHarness();
+  h.folders.push({ ...h.folders[0], id: 'sibling', name: 'Taken' });
+  await assert.rejects(h.service.rename(folderId, 'owner', 'Taken'), ConflictException);
+  assert.equal(h.folders[0].name, 'Original');
+  h.failDelete('P2003');
+  await assert.rejects(h.service.remove(folderId, 'owner'), ConflictException);
+  h.failDelete('P1001');
+  await assert.rejects(h.service.remove(folderId, 'owner'), ServiceUnavailableException);
+  assert.equal(h.folders.length, 2);
+  h.failDelete(null);
+  await h.service.remove(folderId, 'owner');
+  assert.equal(h.folders.length, 1);
 });

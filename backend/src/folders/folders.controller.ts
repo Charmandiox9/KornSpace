@@ -1,13 +1,24 @@
-import { Body, Controller, Get, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, HttpCode, Param, Patch, Put, Get, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import { IsOptional, IsString, IsUUID, MaxLength, MinLength, Matches } from 'class-validator';
-import { ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiQuery, ApiBadRequestResponse, ApiTags, ApiUnauthorizedResponse, ApiServiceUnavailableResponse } from '@nestjs/swagger';
+import { ApiNoContentResponse, ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiQuery, ApiBadRequestResponse, ApiTags, ApiUnauthorizedResponse, ApiServiceUnavailableResponse } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUserContext } from '../auth/auth.types';
 import { SessionJwtGuard } from '../auth/session-jwt.guard';
 import type { StoredFileResponse } from '../files/file.types';
 import type { FolderContentsResponse, FolderResponse } from './folder.types';
 import { FoldersService } from './folders.service';
+
+export class RenameFolderDto {
+  @ApiProperty({ maxLength: 255, example: 'Invoices' })
+  @Transform(({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  @Matches(/^[^\\/\u0000-\u001f\u007f]+$/u)
+  name!: string;
+
+}
 
 export class CreateFolderDto {
   @ApiProperty({ maxLength: 255, example: 'Invoices' })
@@ -51,11 +62,72 @@ class FolderContentsResponseDto implements FolderContentsResponse {
   @ApiProperty({ type: FolderFileResponseDto, isArray: true }) files!: StoredFileResponse[];
 }
 
+class FolderEditorDto {
+  @ApiProperty({ description: 'Correo o usuario exacto del editor.' })
+  @IsString() @MinLength(3) @MaxLength(255) identifier!: string;
+}
+class FolderEditorDetailsDto {
+  @ApiProperty({ format: 'uuid' }) userId!: string;
+  @ApiProperty() email!: string;
+  @ApiProperty({ type: String, nullable: true }) username!: string | null;
+}
+class FolderEditorResponseDto {
+  @ApiProperty({ format: 'uuid' }) userId!: string;
+}
+
 @Controller('folders')
 @UseGuards(SessionJwtGuard)
 @ApiTags('Folders')
+@ApiUnauthorizedResponse({ description: 'Sesión ausente o inválida.' })
+@ApiBadRequestResponse({ description: 'Identificadores o cuerpo inválidos.' })
+@ApiServiceUnavailableResponse({ description: 'Operación fallida; se puede reintentar.' })
 export class FoldersController {
   constructor(private readonly foldersService: FoldersService) {}
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Renombra como propietario o editor; no permite mover la carpeta' })
+  @ApiOkResponse({ type: FolderResponseDto })
+  @ApiBadRequestResponse({ description: 'Nombre inválido o campos adicionales como parentId.' })
+  @ApiNotFoundResponse({ description: 'Carpeta inexistente o sin permiso.' })
+  @ApiConflictResponse({ description: 'Nombre duplicado en la misma ubicación.' })
+  @ApiServiceUnavailableResponse({ description: 'Operación fallida; se puede reintentar.' })
+  rename(@Param('id', new ParseUUIDPipe()) id: string, @Body() input: RenameFolderDto, @CurrentUser() user: AuthenticatedUserContext) {
+    return this.foldersService.rename(id, user.userId, input.name);
+  }
+
+  @Delete(':id') @HttpCode(204)
+  @ApiNoContentResponse({ description: 'Carpeta eliminada.' })
+  @ApiOperation({ summary: 'Elimina una carpeta vacía como propietario o editor; incluye papelera al comprobar contenido' })
+  @ApiNotFoundResponse({ description: 'Carpeta inexistente o sin permiso.' })
+  @ApiConflictResponse({ description: 'Contiene archivos o descendientes; no se modifica S3 ni contenido.' })
+  @ApiServiceUnavailableResponse({ description: 'Operación atómica fallida; se puede reintentar.' })
+  remove(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext) {
+    return this.foldersService.remove(id, user.userId);
+  }
+
+  @Get(':id/editors')
+  @ApiOperation({ summary: 'Lista editores de una carpeta propia' })
+  @ApiOkResponse({ type: FolderEditorDetailsDto, isArray: true })
+  @ApiNotFoundResponse({ description: 'Carpeta inexistente o no propia.' })
+  listEditors(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext) {
+    return this.foldersService.listEditors(id, user.userId);
+  }
+
+  @Put(':id/editors')
+  @ApiOperation({ summary: 'Concede edición de los metadatos de una carpeta; sólo propietario, sin herencia a contenido' })
+  @ApiOkResponse({ type: FolderEditorResponseDto })
+  @ApiNotFoundResponse({ description: 'Carpeta no propia o destinatario no único.' })
+  grant(@Param('id', new ParseUUIDPipe()) id: string, @Body() input: FolderEditorDto, @CurrentUser() user: AuthenticatedUserContext) {
+    return this.foldersService.grantEditor(id, user.userId, input.identifier);
+  }
+
+  @Delete(':id/editors/:userId') @HttpCode(204)
+  @ApiNoContentResponse({ description: 'Permiso revocado.' })
+  @ApiOperation({ summary: 'Revoca editor de carpeta; sólo propietario' })
+  @ApiNotFoundResponse({ description: 'Carpeta no propia.' })
+  revoke(@Param('id', new ParseUUIDPipe()) id: string, @Param('userId', new ParseUUIDPipe()) targetId: string, @CurrentUser() user: AuthenticatedUserContext) {
+    return this.foldersService.revokeEditor(id, user.userId, targetId);
+  }
 
   @Post()
   @ApiOperation({ summary: 'Crea una carpeta en la raíz o dentro de una carpeta propia' })

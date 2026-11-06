@@ -380,6 +380,7 @@ export default function KornSpaceApp() {
     : 'flex min-h-svh flex-col bg-linear-to-br from-page to-raised [&>main]:min-h-screen [&>main]:w-full [&>main]:flex-1';
 
   const filePageProps: FilesPageProps = {
+    userId: user?.id,
     copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, isLoading: isLoadingFiles,
     initialTrash: pathname === '/trash', notice, apiUrl, onUpload: enqueue,
     onUploadDirectory: (selectedFiles) => void uploadDirectory(selectedFiles), onNavigate: navigateToFolder,

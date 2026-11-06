@@ -1,4 +1,16 @@
 export interface TranslationCatalog {
+  folderEditors: string;
+  revokeFolderEditor: string;
+  folderMetadataOnly: string;
+  renameFolder: string;
+  deleteFolder: string;
+  shareFolder: string;
+  folderDeletePolicy: string;
+  folderNotEmpty: string;
+  folderActionFailed: string;
+  folderActionSuccess: string;
+  folderEditorHint: string;
+
   home: string;
   homeWelcome: string;
   recentFiles: string;

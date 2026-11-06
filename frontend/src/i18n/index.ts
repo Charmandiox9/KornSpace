@@ -2,6 +2,18 @@ import type { Language, Theme, TranslationCatalog } from '../types';
 
 export const translations = {
   es: {
+    folderEditors: 'Editores de la carpeta',
+    revokeFolderEditor: 'Revocar edición',
+    folderMetadataOnly: 'Tu permiso permite renombrar o eliminar esta carpeta vacía. Su contenido conserva permisos independientes.',
+    renameFolder: 'Renombrar carpeta',
+    deleteFolder: 'Eliminar carpeta vacía',
+    shareFolder: 'Añadir editor de carpeta',
+    folderDeletePolicy: 'Sólo se eliminan carpetas sin subcarpetas ni archivos, incluidos los de papelera. Esta acción es permanente.',
+    folderNotEmpty: 'La carpeta contiene elementos. Vacíala antes de eliminarla.',
+    folderActionFailed: 'No se pudo modificar la carpeta. Puedes reintentar.',
+    folderActionSuccess: 'Carpeta actualizada.',
+    folderEditorHint: 'Indica el correo o usuario exacto. Permite renombrar y eliminar esta carpeta vacía, sin acceso a su contenido.',
+
     home: 'Página principal',
     homeWelcome: 'Tu espacio, al día',
     recentFiles: 'Abiertos recientemente',
@@ -187,6 +199,18 @@ export const translations = {
     retryUpload: 'Reintentar carga',
   },
   en: {
+    folderEditors: 'Folder editors',
+    revokeFolderEditor: 'Revoke editing',
+    folderMetadataOnly: 'Your permission allows renaming or deleting this empty folder. Its contents retain independent permissions.',
+    renameFolder: 'Rename folder',
+    deleteFolder: 'Delete empty folder',
+    shareFolder: 'Add folder editor',
+    folderDeletePolicy: 'Only folders without subfolders or files, including trash, can be deleted. This action is permanent.',
+    folderNotEmpty: 'The folder contains items. Empty it before deleting it.',
+    folderActionFailed: 'The folder could not be changed. You can retry.',
+    folderActionSuccess: 'Folder updated.',
+    folderEditorHint: 'Enter the exact email or username. Allows renaming and deleting this empty folder, without access to its contents.',
+
     home: 'Home',
     homeWelcome: 'Your space, up to date',
     recentFiles: 'Recently opened',

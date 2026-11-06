@@ -4,14 +4,16 @@ import { animate, stagger } from 'animejs';
 import { CreateFolderDialog } from '@/components/CreateFolderDialog';
 import { WorkspaceHeader, WORKSPACE_TITLE_ID } from '@/components/WorkspaceHeader';
 import { formatFileSize } from '@/lib/format-file-size';
-import type { FilesPageProps, StoredFile } from '@/types';
+import type { FilesPageProps, FolderActionSelection, StoredFile } from '@/types';
 import { useFileDrop } from '@/hooks/use-file-drop';
+import { FolderActionDialog } from './FolderActionDialog';
 import { FileViewer } from './FileViewer';
 import { FileEditDialog } from './FileEditDialog';
 import { authenticatedFetch } from '@/lib/api-client';
 import { sileo } from 'sileo';
 
-export function FilesPage({ copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, notice, apiUrl, onUpload, onUploadDirectory, onNavigate, onMoveToTrash, onDeletePermanent, onRestore, onCreateFolder, onChanged, title, toolbar, initialTrash = false, isLoading = false }: FilesPageProps) {
+export function FilesPage({ userId, copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, notice, apiUrl, onUpload, onUploadDirectory, onNavigate, onMoveToTrash, onDeletePermanent, onRestore, onCreateFolder, onChanged, title, toolbar, initialTrash = false, isLoading = false }: FilesPageProps) {
+  const [folderAction, setFolderAction] = useState<FolderActionSelection | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const directoryInput = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
@@ -27,7 +29,8 @@ export function FilesPage({ copy, files, folders, currentFolder, breadcrumbs, cu
   const [emptyBusy, setEmptyBusy] = useState(false);
   const emptyDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { if (emptying) emptyDialog.current?.showModal(); }, [emptying]);
-  const { isDragging: dragging, targetFolderId: dropFolderId } = useFileDrop({ folders, currentFolderId, enabled: !initialTrash && !creating && !deleting && !viewing && !editing, onUpload });
+  const canWriteContents = !currentFolder || currentFolder.ownerId === userId;
+  const { isDragging: dragging, targetFolderId: dropFolderId } = useFileDrop({ folders, currentFolderId, enabled: canWriteContents && !folderAction && !initialTrash && !creating && !deleting && !viewing && !editing, onUpload });
   const dropFolderName = folders.find((folder) => folder.id === dropFolderId)?.name ?? currentFolder?.name ?? copy.myDrive;
   const shownFiles = initialTrash ? trash : files;
   useEffect(() => {
@@ -54,7 +57,7 @@ export function FilesPage({ copy, files, folders, currentFolder, breadcrumbs, cu
   return <section className="min-w-0 w-full flex-1" aria-labelledby={WORKSPACE_TITLE_ID}>
     {dragging && createPortal(<div data-file-drop-overlay className="pointer-events-none fixed inset-2 z-[100] rounded-2xl border-2 border-accent bg-accent/5 motion-safe:transition-colors" aria-hidden="true"><div className="absolute inset-x-4 bottom-8 flex justify-center"><span className="max-w-full truncate rounded-2xl border border-accent-line bg-surface px-6 py-4 text-sm font-semibold text-accent shadow-panel">{copy.dropFilesNow} · {dropFolderName}</span></div></div>, document.body)}
     <p className="sr-only" role="status" aria-live="polite">{dragging ? `${copy.dropFilesNow} · ${dropFolderName}` : ''}</p>
-    {host && !initialTrash && createPortal(<details className="relative">
+    {host && canWriteContents && !initialTrash && createPortal(<details className="relative">
       <summary aria-label={copy.newAction} title={copy.newAction} className="grid size-12 cursor-pointer list-none place-items-center rounded-2xl bg-linear-to-br from-accent to-secondary text-3xl text-white shadow-lg shadow-accent/20 transition-transform hover:scale-105 motion-reduce:transform-none"><span aria-hidden="true">＋</span></summary>
       <div className="absolute left-0 z-50 mt-3 grid w-52 gap-1 rounded-xl border border-line bg-surface p-2 shadow-panel" onClick={(event) => closeMenu(event.currentTarget)}>
         <button type="button" className="rounded-lg px-3 py-3 text-left text-sm hover:bg-raised" onClick={() => fileInput.current?.click()}>{copy.uploadFiles}</button>
@@ -67,16 +70,17 @@ export function FilesPage({ copy, files, folders, currentFolder, breadcrumbs, cu
     <input ref={directoryInput} type="file" multiple className="sr-only" aria-label={copy.selectFolder}
       // @ts-expect-error Browser directory picker extension.
       webkitdirectory="" onChange={(event) => { onUploadDirectory(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
-    {!initialTrash && <div role="region" aria-label={copy.uploadZone} className={`mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs ${dragging ? 'text-accent' : 'text-muted'}`}>
+    {!initialTrash && canWriteContents && <div role="region" aria-label={copy.uploadZone} className={`mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs ${dragging ? 'text-accent' : 'text-muted'}`}>
       <p>{dragging ? copy.dropFilesNow : copy.dropFilesHere}</p><span id="upload-hint" className="sr-only">{copy.uploadMultipleHint}</span><button type="button" aria-describedby="upload-hint" className="rounded-lg px-3 py-2 font-semibold text-accent hover:bg-accent-soft" title={copy.uploadMultipleHint} onClick={() => fileInput.current?.click()}>{copy.selectFiles}</button>
     </div>}
+    {!canWriteContents && <p role="status" className="mt-4 text-sm text-muted">{copy.folderMetadataOnly}</p>}
     <div className="flex items-start gap-6">
       <div ref={grid} className="min-w-0 flex-1 py-6" aria-busy={isLoading}>
         {toolbar}
         {initialTrash && trash.length > 0 && <div className="mb-5 flex justify-end"><button type="button" className="min-h-10 rounded-xl border border-line px-4 text-xs font-semibold text-status hover:bg-raised" onClick={() => setEmptying(true)}>{copy.emptyTrashAction}</button></div>}
         {notice && <p role="status" className="mb-5 rounded-xl border border-line bg-raised p-4 text-sm text-muted">{notice}</p>}
         {isLoading ? <div role="status" aria-label={copy.loadingFiles} className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">{Array.from({ length: 8 }, (_, index) => <div key={index} className="animate-pulse overflow-hidden rounded-2xl border border-line bg-raised motion-reduce:animate-none"><div className="aspect-[4/3] bg-line/40" /><div className="space-y-3 p-4"><div className="h-3 w-3/4 rounded bg-line" /><div className="h-2 w-1/2 rounded bg-line/60" /></div></div>)}</div> : <>
-          {!initialTrash && folders.length > 0 && <section className="mb-9 border-b border-line pb-9" aria-labelledby="folders-heading"><h2 id="folders-heading" className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted">{copy.folderSection}</h2><ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4 p-0">{folders.map((folder) => <li data-entry key={folder.id}><button type="button" data-upload-folder-id={folder.id} className={`group flex min-h-16 w-full items-center gap-3 rounded-xl border border-line bg-raised px-4 text-left transition hover:border-accent hover:bg-accent-soft motion-reduce:transition-none ${dragging && dropFolderId === folder.id ? 'border-accent bg-accent-soft ring-2 ring-accent/40' : ''}`} onClick={() => onNavigate(folder.id)}><svg className="size-7 shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z" fill="currentColor" fillOpacity=".12" /></svg><span className="min-w-0 flex-1 truncate text-sm font-medium">{folder.name}</span><span aria-hidden="true" className="text-muted">›</span></button></li>)}</ul></section>}
+          {!initialTrash && folders.length > 0 && <section className="mb-9 border-b border-line pb-9" aria-labelledby="folders-heading"><h2 id="folders-heading" className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted">{copy.folderSection}</h2><ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4 p-0">{folders.map((folder) => <li data-entry key={folder.id}><button type="button" data-upload-folder-id={folder.id} className={`group flex min-h-16 w-full items-center gap-3 rounded-xl border border-line bg-raised px-4 text-left transition hover:border-accent hover:bg-accent-soft motion-reduce:transition-none ${dragging && dropFolderId === folder.id ? 'border-accent bg-accent-soft ring-2 ring-accent/40' : ''}`} onClick={() => onNavigate(folder.id)}><svg className="size-7 shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z" fill="currentColor" fillOpacity=".12" /></svg><span className="min-w-0 flex-1 truncate text-sm font-medium">{folder.name}</span><span aria-hidden="true" className="text-muted">›</span></button><div className="mt-2 flex flex-wrap gap-1"><button type="button" aria-label={`${copy.renameFolder}: ${folder.name}`} className="rounded-lg px-2 py-2 text-xs text-accent hover:bg-accent-soft" onClick={() => setFolderAction({ folder, action: 'rename' })}>{copy.renameFolder}</button><button type="button" aria-label={`${copy.deleteFolder}: ${folder.name}`} className="rounded-lg px-2 py-2 text-xs text-status hover:bg-raised" onClick={() => setFolderAction({ folder, action: 'delete' })}>{copy.deleteFolder}</button>{folder.ownerId === userId && <button type="button" aria-label={`${copy.shareFolder}: ${folder.name}`} className="rounded-lg px-2 py-2 text-xs text-accent hover:bg-accent-soft" onClick={() => setFolderAction({ folder, action: 'share' })}>{copy.shareFolder}</button>}</div></li>)}</ul></section>}
           <section aria-labelledby="files-heading"><h2 id="files-heading" className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted">{initialTrash ? copy.trashHeading : copy.filesHeading}</h2>
             {!notice && shownFiles.length === 0 && <p className="rounded-xl border border-dashed border-line px-5 py-12 text-center text-sm text-muted">{initialTrash ? copy.emptyTrash : currentFolderId ? copy.emptyFolder : copy.emptyFiles}</p>}
             <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4 p-0">{shownFiles.map((file) => <li data-entry key={file.id} className="min-w-0"><article className={`group relative rounded-2xl border bg-raised transition hover:border-accent-line hover:shadow-lg motion-reduce:transition-none ${selectedFile?.id === file.id ? 'border-accent ring-2 ring-accent/20' : 'border-line'}`}>
@@ -106,6 +110,7 @@ export function FilesPage({ copy, files, folders, currentFolder, breadcrumbs, cu
         {canOpen(selectedFile) && <div className="mt-7 grid gap-2 border-t border-line pt-5"><button type="button" className="min-h-10 rounded-xl bg-accent-soft text-sm font-semibold text-accent" onClick={() => setViewing(selectedFile)}>{copy.openFile}</button><a className="py-2 text-center text-xs text-accent" href={downloadUrl(selectedFile)}>{copy.download}</a></div>}
       </aside>}
     </div>
+    {folderAction && <FolderActionDialog key={`${folderAction.folder.id}-${folderAction.action}`} {...folderAction} copy={copy} onClose={() => setFolderAction(null)} onSaved={onChanged ?? (async () => undefined)} />}
     {viewing && <FileViewer key={viewing.id} file={viewing} copy={copy} apiUrl={apiUrl} onClose={() => { setViewing(null); void onChanged?.(); }} onDelete={() => { setDeleting(viewing); setViewing(null); }} />}
     {editing && <FileEditDialog file={editing} mode={editMode} copy={copy} onClose={() => setEditing(null)} onSaved={onChanged ?? (async () => undefined)} />}
     {creating && onCreateFolder && <CreateFolderDialog copy={copy} onClose={() => setCreating(false)} onSubmit={(name) => onCreateFolder(name, currentFolderId)} />}

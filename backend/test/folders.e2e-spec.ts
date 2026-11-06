@@ -15,7 +15,8 @@ test('application mounts folder routes and includes them in Swagger', async () =
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(PrismaService)
     .useValue({
-      folder: { findMany: async () => [], findFirst: async () => null },
+      folderPermission: { findMany: async () => [], findUnique: async () => null },
+    folder: { findMany: async () => [], findFirst: async () => null },
       storedFile: { findMany: async () => [] },
     })
     .overrideProvider(RedisService)
@@ -56,7 +57,9 @@ test('folder REST endpoints authenticate, validate input, navigate nested folder
   const folders: Array<{ id: string; name: string; ownerId: string; parentId: string | null; createdAt: Date; updatedAt: Date }> = [];
   let nextId = 0;
   const prisma = {
+    folderPermission: { findMany: async () => [], findUnique: async () => null },
     folder: {
+      findUnique: async ({ where }: { where: { id: string } }) => folders.find((folder) => folder.id === where.id) ?? null,
       findFirst: async ({ where }: { where: { id: string; ownerId: string } }) =>
         folders.find((folder) => folder.id === where.id && folder.ownerId === where.ownerId) ?? null,
       findMany: async ({ where }: { where: { ownerId: string; parentId: string | null } }) =>
@@ -133,4 +136,54 @@ test('folder REST endpoints authenticate, validate input, navigate nested folder
   } finally {
     await app.close();
   }
+});
+
+
+test('folder mutation REST routes validate names, permissions, nonempty deletion and retry', async () => {
+  const { folderMutationHarness, folderId, editorId } = await import('./folder-mutation.harness');
+  const h = folderMutationHarness();
+  const moduleRef = await Test.createTestingModule({ controllers: [FoldersController], providers: [{ provide: FoldersService, useValue: h.service }] })
+    .overrideGuard(SessionJwtGuard).useValue({ canActivate: (context: { switchToHttp: () => { getRequest: () => { headers: Record<string, string>; authContext?: { userId: string } } } }) => {
+      const request = context.switchToHttp().getRequest();
+      if (!request.headers['x-test-user']) throw new UnauthorizedException();
+      request.authContext = { userId: request.headers['x-test-user'] }; return true;
+    } }).compile();
+  const app = moduleRef.createNestApplication({ logger: false });
+  app.setGlobalPrefix('api'); app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }));
+  await app.listen(0, '127.0.0.1');
+  try {
+    const url = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}/api/folders/${folderId}`;
+    const request = (method: string, user = 'owner', body?: object, suffix = '') => fetch(url + suffix, { method, headers: { 'x-test-user': user, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    assert.equal((await request('PATCH', 'stranger', { name: 'Denied' })).status, 404);
+    assert.equal((await request('DELETE', 'stranger')).status, 404);
+    assert.equal((await request('PATCH', 'owner', { name: 'bad/name' })).status, 400);
+    assert.equal((await request('PATCH', 'owner', { name: 'Moved', parentId: folderId })).status, 400);
+    assert.equal((await request('PUT', 'owner', { identifier: 'editor' }, '/editors')).status, 200);
+    assert.equal((await request('GET', 'owner', undefined, '/editors')).status, 200);
+    assert.equal((await request('GET', editorId, undefined, '/editors')).status, 404);
+    assert.equal((await request('DELETE', editorId, undefined, `/editors/${editorId}`)).status, 404);
+    assert.equal((await request('DELETE', 'owner', undefined, `/editors/${editorId}`)).status, 204);
+    assert.equal((await request('PATCH', editorId, { name: 'Revoked' })).status, 404);
+    await request('PUT', 'owner', { identifier: 'editor' }, '/editors');
+    assert.equal((await request('PATCH', editorId, { name: 'Renamed' })).status, 200);
+    assert.equal(h.folders[0].parentId, null);
+    h.files.push({ folderId, deletedAt: null });
+    assert.equal((await request('DELETE', editorId)).status, 409);
+    h.files[0].deletedAt = new Date();
+    assert.equal((await request('DELETE', editorId)).status, 409);
+    h.files.length = 0;
+    h.folders.push({ ...h.folders[0], id: 'child', parentId: folderId });
+    assert.equal((await request('DELETE', editorId)).status, 409);
+    h.folders.pop();
+    h.failDelete('P1001');
+    assert.equal((await request('DELETE', editorId)).status, 503);
+    assert.equal(h.folders.length, 1);
+    h.failDelete(null);
+    assert.equal((await request('DELETE', editorId)).status, 204);
+    assert.equal(h.folders.length, 0);
+    assert.equal(h.editors.size, 0);
+    const doc = SwaggerModule.createDocument(app, new DocumentBuilder().setTitle('Folders').setVersion('1').build());
+    assert.ok(doc.paths['/api/folders/{id}']?.patch?.responses['409']);
+    assert.ok(doc.paths['/api/folders/{id}']?.delete?.responses['409']);
+  } finally { await app.close(); }
 });

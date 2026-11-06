@@ -99,7 +99,27 @@ export interface UsernameSetupPageProps {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
+export interface FolderEditor {
+  userId: string;
+  email: string;
+  username: string | null;
+}
+
+export interface FolderActionSelection {
+  folder: StoredFolder;
+  action: 'rename' | 'delete' | 'share';
+}
+
+export interface FolderActionDialogProps {
+  folder: StoredFolder;
+  action: 'rename' | 'delete' | 'share';
+  copy: TranslationCatalog;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}
+
 export interface FilesPageProps {
+  userId?: string;
   title?: string;
   toolbar?: ReactNode;
   onChanged?: () => Promise<void>;
