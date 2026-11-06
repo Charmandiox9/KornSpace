@@ -9,6 +9,22 @@ export interface StoredFile {
   deletedAt?: string | null;
 }
 
+export interface StoredFolder {
+  id: string;
+  name: string;
+  ownerId: string;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FolderContents {
+  folder: StoredFolder | null;
+  breadcrumbs: StoredFolder[];
+  folders: StoredFolder[];
+  files: StoredFile[];
+}
+
 export interface FileStatusEvent {
   type: 'file.status';
   fileId: string;
@@ -43,6 +59,7 @@ export interface UploadItem {
 export interface UploadJob {
   id: string;
   file: File;
+  folderId: string | null;
   operationId: string;
   epoch: number;
   controller: AbortController;
@@ -51,7 +68,7 @@ export interface UploadJob {
 }
 
 export interface UploadQueueOptions {
-  upload: (file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string) => Promise<UploadResult>;
+  upload: (file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string, folderId: string | null) => Promise<UploadResult>;
   cancelUpload: (operationId: string) => Promise<CancellationResult>;
   onUploaded: () => Promise<void>;
   concurrency?: number;
@@ -61,7 +78,7 @@ export interface UploadQueue {
   getSnapshot: () => UploadItem[];
   getServerSnapshot: () => UploadItem[];
   subscribe: (listener: () => void) => () => void;
-  enqueue: (files: File[]) => void;
+  enqueue: (files: File[], folderId?: string | null) => void;
   cancel: () => void;
   cancelItem: (id: string) => void;
   retryItem: (id: string) => void;
@@ -69,7 +86,7 @@ export interface UploadQueue {
 
 export interface UploadQueueControls {
   queue: UploadQueue;
-  enqueue: (files: File[]) => void;
+  enqueue: (files: File[], folderId?: string | null) => void;
   cancelItem: (id: string) => void;
   retryItem: (id: string) => void;
 }

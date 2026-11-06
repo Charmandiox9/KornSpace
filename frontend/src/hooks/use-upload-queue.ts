@@ -8,8 +8,10 @@ import { createUploadTransport } from '@/lib/upload-request';
 import { isStoredFile } from '@/features/files/is-stored-file';
 import { createUploadQueue } from '@/features/files/upload-queue';
 
-async function uploadFile(file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string): Promise<'uploaded' | 'processing'> {
-  const response = await authenticatedRequest(`/api/files?name=${encodeURIComponent(file.name)}`, {
+async function uploadFile(file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string, folderId: string | null): Promise<'uploaded' | 'processing'> {
+  const query = new URLSearchParams({ name: file.name });
+  if (folderId) query.set('folderId', folderId);
+  const response = await authenticatedRequest(`/api/files?${query.toString()}`, {
     method: 'POST',
     headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Upload-Id': operationId },
     body: file,
@@ -60,7 +62,7 @@ export function useUploadQueue(onUploaded: () => Promise<void>, userId: string |
 
   return {
     queue,
-    enqueue: (files: File[]) => { if (userId) queue.enqueue(files); },
+    enqueue: (files: File[], folderId?: string | null) => { if (userId) queue.enqueue(files, folderId); },
     cancelItem: queue.cancelItem,
     retryItem: queue.retryItem,
   };

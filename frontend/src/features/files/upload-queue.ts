@@ -46,8 +46,8 @@ export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrenc
     });
   }
 
-  function makeJob(id: string, file: File): UploadJob {
-    return { id, file, operationId: crypto.randomUUID(), epoch, controller: new AbortController(), cancelRequested: false };
+  function makeJob(id: string, file: File, folderId: string | null): UploadJob {
+    return { id, file, folderId, operationId: crypto.randomUUID(), epoch, controller: new AbortController(), cancelRequested: false };
   }
 
   function pump(): void {
@@ -62,7 +62,7 @@ export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrenc
             if (job.epoch !== epoch || job.cancelRequested) return;
             const loadedBytes = Math.max(0, Math.min(progress.loadedBytes, job.file.size));
             update(job.id, { loadedBytes, status: loadedBytes === job.file.size ? 'confirming' : 'uploading' });
-          }, job.operationId);
+          }, job.operationId, job.folderId);
           if (job.cancelRequested) await job.cancellation;
           else await settle(job, result);
         } catch {
@@ -89,11 +89,11 @@ export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrenc
       listeners.add(listener);
       return () => { listeners.delete(listener); };
     },
-    enqueue(files: File[]): void {
+    enqueue(files: File[], folderId: string | null = null): void {
       const items = files.map((file): UploadItem => {
         const id = String(++nextId);
         const error = validateUpload(file);
-        if (!error) { const job = makeJob(id, file); jobs.set(id, job); pending.push(job); }
+        if (!error) { const job = makeJob(id, file, folderId); jobs.set(id, job); pending.push(job); }
         return { id, name: file.name, sizeBytes: file.size, loadedBytes: 0, completionWon: false, status: error ? 'invalid' : 'queued', error };
       });
       snapshot = [...snapshot, ...items];
@@ -119,7 +119,7 @@ export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrenc
       const item = snapshot.find((entry) => entry.id === id);
       const previous = jobs.get(id);
       if (!previous || !item || !['failed', 'cancelled'].includes(item.status) || active.has(id)) return;
-      const job = makeJob(id, previous.file);
+      const job = makeJob(id, previous.file, previous.folderId);
       jobs.set(id, job);
       pending.push(job);
       update(id, { status: 'queued', loadedBytes: 0, error: null, completionWon: false });

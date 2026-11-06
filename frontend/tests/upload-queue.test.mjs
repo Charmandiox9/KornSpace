@@ -15,6 +15,23 @@ test('validates each file, accepting exactly 100 MiB and rejecting empty or inva
   assert.equal(validateUpload({ name: 'a'.repeat(256), size: 1 }), 'invalidName');
 });
 
+test('keeps the selected destination folder with each queued upload', async () => {
+  const destinations = [];
+  const queue = createUploadQueue({
+    upload: async (_item, _signal, _progress, _operationId, folderId) => {
+      destinations.push(folderId);
+      return 'uploaded';
+    },
+    onUploaded: async () => undefined,
+  });
+
+  queue.enqueue([file('one.txt'), file('two.txt')], 'folder-123');
+  await tick();
+
+  assert.deepEqual(destinations, ['folder-123', 'folder-123']);
+  assert.ok(queue.getSnapshot().every((item) => item.status === 'uploaded'));
+});
+
 test('isolates invalid files and partial failures while refreshing after each successful upload', async () => {
   const sent = [];
   let refreshes = 0;

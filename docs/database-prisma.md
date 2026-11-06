@@ -4,6 +4,8 @@ Prisma Client es el único ORM del backend y `PrismaService` centraliza el clien
 
 `User` enlaza la identidad de Google con KornSpace. `StoredFile.ownerId` identifica a su propietario. Los archivos anteriores al inicio de sesión pueden conservar `ownerId` nulo y no se muestran a las cuentas autenticadas. Los cambios del esquema incluyen una migración versionada.
 
+Las carpetas usan una raíz lógica: `Folder.parentId = null` identifica carpetas en raíz y `StoredFile.folderId = null` mantiene archivos en raíz. Los nombres son únicos por propietario y carpeta; PostgreSQL compara los nombres distinguiendo mayúsculas. Se permiten subcarpetas sin límite fijo de profundidad. Las claves foráneas compuestas impiden colocar una carpeta o un archivo bajo una carpeta de otro propietario. Al crear el modelo, los archivos existentes conservan `ownerId` y `folderId` queda nulo.
+
 ## Comandos
 
 Desde la raíz, los scripts cargan automáticamente el `.env` raíz:

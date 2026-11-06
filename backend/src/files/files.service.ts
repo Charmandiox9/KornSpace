@@ -124,6 +124,15 @@ export class FilesService {
     lifecycle: UploadLifecycle = {},
   ): Promise<UploadFileResult> {
     const normalizedName = this.validateUpload(name, contentType, sizeBytes);
+    if (lifecycle.folderId) {
+      let folder: { id: string } | null;
+      try {
+        folder = await this.prisma.folder.findFirst({ where: { id: lifecycle.folderId, ownerId }, select: { id: true } });
+      } catch {
+        throw new ServiceUnavailableException('No fue posible validar la carpeta de destino.');
+      }
+      if (!folder) throw new NotFoundException('No se encontró la carpeta de destino.');
+    }
     lifecycle.signal?.throwIfAborted();
     const id = lifecycle.fileId ?? randomUUID();
     const s3Key = `files/${id}`;
@@ -178,6 +187,7 @@ export class FilesService {
           sizeBytes: BigInt(sizeBytes),
           s3Key,
           ownerId,
+          folderId: lifecycle.folderId ?? null,
           checksum: asynchronous ? null : streamMetadata.checksum(),
           status: asynchronous ? 'PROCESSING' : 'AVAILABLE',
         },
@@ -225,14 +235,20 @@ export class FilesService {
       throw new ServiceUnavailableException('El archivo todavía no está disponible.');
     }
 
-    const result = await this.s3.send(new GetObjectCommand({
-      Bucket: this.configuration.bucket,
-      Key: file.s3Key,
-    }));
-    if (!result.Body || !('pipe' in result.Body)) {
+    let body: Readable | undefined;
+    try {
+      const result = await this.s3.send(new GetObjectCommand({
+        Bucket: this.configuration.bucket,
+        Key: file.s3Key,
+      }));
+      if (result.Body && 'pipe' in result.Body) body = result.Body as Readable;
+    } catch {
+      throw new ServiceUnavailableException('No fue posible recuperar el archivo del almacenamiento.');
+    }
+    if (!body) {
       throw new ServiceUnavailableException('El almacenamiento no devolvió el contenido del archivo.');
     }
-    return { file: this.toResponse(file), body: result.Body as Readable };
+    return { file: this.toResponse(file), body };
   }
 
   async getStatus(id: string, ownerId: string): Promise<StoredFileResponse> {

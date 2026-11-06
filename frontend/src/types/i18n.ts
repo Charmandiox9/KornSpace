@@ -6,7 +6,10 @@ export interface TranslationCatalog {
   skipToContent: string;
   location: string;
   newFolder: string;
+  newAction: string;
   uploadFiles: string;
+  uploadFolder: string;
+  selectFolder: string;
   sharedWithMe: string;
   sharedEmpty: string;
   folderNameLabel: string;
@@ -15,6 +18,13 @@ export interface TranslationCatalog {
   createFolder: string;
   folderCreated: string;
   folderCreateFailed: string;
+  folderUploadFailed: string;
+  folderQueued: string;
+  folderNameConflict: string;
+  folderParentMissing: string;
+  emptyFolder: string;
+  folderSection: string;
+  previewUnavailable: string;
   loginMetaTitle: string;
   onboardingMetaTitle: string;
   socialLocale: string;

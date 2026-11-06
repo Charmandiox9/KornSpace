@@ -9,15 +9,16 @@ datasource db {
 }
 
 model User {
-  id           String       @id @default(uuid()) @db.Uuid
+  id            String       @id @default(uuid()) @db.Uuid
   googleSubject String       @unique
-  email        String
-  name         String?
-  username     String?      @unique
-  pictureUrl   String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  files        StoredFile[]
+  email         String
+  name          String?
+  username      String?      @unique
+  pictureUrl    String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  files         StoredFile[]
+  folders       Folder[]
 }
 
 enum FileStatus {
@@ -38,7 +39,28 @@ model StoredFile {
   deletedAt   DateTime?
   ownerId     String?    @db.Uuid
   owner       User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  folderId    String?    @db.Uuid
+  folder      Folder?    @relation(fields: [folderId, ownerId], references: [id, ownerId], onDelete: Restrict)
 
   @@index([ownerId, createdAt])
   @@index([ownerId, deletedAt])
+  @@index([folderId, ownerId])
+}
+
+model Folder {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String       @db.VarChar(255)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  ownerId   String       @db.Uuid
+  owner     User         @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  parentId  String?      @db.Uuid
+  parent    Folder?      @relation("FolderTree", fields: [parentId, ownerId], references: [id, ownerId], onDelete: Restrict)
+  children  Folder[]     @relation("FolderTree")
+  files     StoredFile[]
+
+  @@unique([id, ownerId])
+  @@unique([ownerId, parentId, name])
+  @@index([ownerId, parentId])
+  @@index([ownerId, createdAt])
 }

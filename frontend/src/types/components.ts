@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from 'react';
 import type { AuthenticatedUser } from './auth';
-import type { StoredFile } from './files';
+import type { StoredFile, StoredFolder } from './files';
 import type { TranslationCatalog } from './i18n';
 import type { Language, Theme } from './preferences';
 
@@ -35,6 +35,7 @@ export interface WorkspaceHeaderProps {
   onNavigate?: (folderId: string | null) => void;
   /** Si no se pasa, el botón de subir no se muestra. */
   onUploadClick?: () => void;
+  onUploadFolderClick?: () => void;
   /** Si no se pasa, el botón de crear carpeta no se muestra. */
   onCreateFolder?: () => void;
 }
@@ -101,16 +102,22 @@ export interface UsernameSetupPageProps {
 export interface FilesPageProps {
   copy: TranslationCatalog;
   files: StoredFile[];
+  folders: StoredFolder[];
+  currentFolder: StoredFolder | null;
+  breadcrumbs: StoredFolder[];
+  currentFolderId: string | null;
   trash: StoredFile[];
   initialTrash?: boolean;
   notice: string;
   apiUrl: (path: string) => string;
-  onUpload: (files: File[]) => void;
+  onUpload: (files: File[], folderId: string | null) => void;
+  onUploadDirectory: (files: File[]) => void;
+  onNavigate: (folderId: string | null) => void;
   onMoveToTrash: (file: StoredFile) => void;
   onDeletePermanent: (fileId: string) => void;
   onRestore: (fileId: string) => void;
   /** Si no se pasa, la acción «Nueva carpeta» no se muestra. */
-  onCreateFolder?: (name: string) => Promise<void>;
+  onCreateFolder?: (name: string, parentId: string | null) => Promise<void>;
 }
 
 export interface SessionProviderProps {

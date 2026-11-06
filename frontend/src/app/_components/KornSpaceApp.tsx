@@ -1,6 +1,6 @@
 'use client';
 
-import type { FileStatusEvent, StoredFile } from '@/types';
+import type { FileStatusEvent, StoredFile, StoredFolder } from '@/types';
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -13,6 +13,7 @@ import { FilesPage } from '@/features/files/FilesPage';
 import { SharedPage } from '@/features/files/SharedPage';
 import { UploadNotifications } from '@/features/files/UploadNotifications';
 import { isStoredFile } from '@/features/files/is-stored-file';
+import { isFolderContents, isStoredFolder } from '@/features/files/is-folder-contents';
 import { authenticatedFetch, apiUrl } from '@/lib/api-client';
 import { translations } from '@/i18n';
 import { usePreferences } from '@/hooks/use-preferences';
@@ -46,6 +47,10 @@ function setCanonicalUrl(href: string): void {
 export default function KornSpaceApp() {
   const { language, theme, toggleLanguage, toggleTheme } = usePreferences();
   const [files, setFiles] = useState<StoredFile[]>([]);
+  const [folders, setFolders] = useState<StoredFolder[]>([]);
+  const [currentFolder, setCurrentFolder] = useState<StoredFolder | null>(null);
+  const [breadcrumbs, setBreadcrumbs] = useState<StoredFolder[]>([]);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [trash, setTrash] = useState<StoredFile[]>([]);
   // Pendiente: poblar desde el endpoint de compartidos cuando exista; por ahora la vista muestra su estado vacío.
   const sharedFiles: StoredFile[] = [];
@@ -59,14 +64,15 @@ export default function KornSpaceApp() {
   const copy = translations[language];
   const route = getSessionDestination(authStatus, Boolean(user?.username));
 
-  const refreshFiles = useCallback(async (includeTrash = true): Promise<void> => {
+  const refreshFiles = useCallback(async (includeTrash = true, folderId: string | null = currentFolderId): Promise<void> => {
     if (!user?.id) return;
     const version = ++refreshVersion.current;
     try {
-      const filesResponse = await authenticatedFetch('/api/files');
+      const folderQuery = folderId ? `?parentId=${encodeURIComponent(folderId)}` : '';
+      const filesResponse = await authenticatedFetch(`/api/folders${folderQuery}`);
       if (!filesResponse.ok) throw new Error(copy.loadError);
       const filesPayload: unknown = await filesResponse.json();
-      if (!Array.isArray(filesPayload) || !filesPayload.every(isStoredFile)) throw new Error(copy.loadError);
+      if (!isFolderContents(filesPayload)) throw new Error(copy.loadError);
       let trashPayload: unknown;
       if (includeTrash) {
         const trashResponse = await authenticatedFetch('/api/files/trash');
@@ -75,13 +81,16 @@ export default function KornSpaceApp() {
         if (!Array.isArray(trashPayload) || !trashPayload.every(isStoredFile)) throw new Error(copy.loadError);
       }
       if (version === refreshVersion.current) {
-        setFiles(filesPayload);
+        setFiles(filesPayload.files);
+        setFolders(filesPayload.folders);
+        setCurrentFolder(filesPayload.folder);
+        setBreadcrumbs(filesPayload.breadcrumbs);
         if (includeTrash && Array.isArray(trashPayload)) setTrash(trashPayload);
       }
     } catch {
       if (version === refreshVersion.current) setNotice(copy.loadError);
     }
-  }, [copy.loadError, user?.id]);
+  }, [copy.loadError, currentFolderId, user?.id]);
   const { queue, enqueue, cancelItem, retryItem } = useUploadQueue(() => refreshFiles(false), user?.id);
   async function mutateFile(path: string, method: 'POST' | 'DELETE'): Promise<void> {
     try {
@@ -99,20 +108,96 @@ export default function KornSpaceApp() {
     }
   }
 
-  async function createFolder(name: string): Promise<void> {
+  async function createFolder(name: string, parentId: string | null): Promise<void> {
     const response = await authenticatedFetch('/api/folders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, parentId: null }),
+      body: JSON.stringify({ name, parentId }),
     });
+    if (response.status === 409) throw new Error(copy.folderNameConflict);
+    if (response.status === 404) throw new Error(copy.folderParentMissing);
     if (!response.ok) throw new Error(copy.folderCreateFailed);
+    setNotice('');
     sileo.success({ title: copy.folderCreated, duration: 4000 });
+    await refreshFiles(false, parentId);
+  }
+
+  async function uploadDirectory(selectedFiles: File[]): Promise<void> {
+    if (selectedFiles.length === 0) return;
+    const rootParentId = currentFolderId;
+    const folderCache = new Map<string, string>();
+    const uploadsByFolder = new Map<string | null, File[]>();
+
+    async function getOrCreateFolder(parentId: string | null, name: string): Promise<string> {
+      const cacheKey = `${parentId ?? 'root'}\u0000${name}`;
+      const cachedId = folderCache.get(cacheKey);
+      if (cachedId) return cachedId;
+      const parentQuery = parentId ? `?parentId=${encodeURIComponent(parentId)}` : '';
+      const contentsResponse = await authenticatedFetch(`/api/folders${parentQuery}`);
+      const contentsPayload: unknown = contentsResponse.ok ? await contentsResponse.json() : null;
+      if (!isFolderContents(contentsPayload)) throw new Error(copy.folderUploadFailed);
+      const existingFolder = contentsPayload.folders.find((folder) => folder.name === name);
+      if (existingFolder) {
+        folderCache.set(cacheKey, existingFolder.id);
+        return existingFolder.id;
+      }
+
+      const createResponse = await authenticatedFetch('/api/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, parentId }),
+      });
+      if (createResponse.status === 409) {
+        const retryResponse = await authenticatedFetch(`/api/folders${parentQuery}`);
+        const retryPayload: unknown = retryResponse.ok ? await retryResponse.json() : null;
+        if (isFolderContents(retryPayload)) {
+          const racedFolder = retryPayload.folders.find((folder) => folder.name === name);
+          if (racedFolder) {
+            folderCache.set(cacheKey, racedFolder.id);
+            return racedFolder.id;
+          }
+        }
+      }
+      if (!createResponse.ok) throw new Error(copy.folderUploadFailed);
+      const createdPayload: unknown = await createResponse.json();
+      if (!isStoredFolder(createdPayload)) throw new Error(copy.folderUploadFailed);
+      folderCache.set(cacheKey, createdPayload.id);
+      return createdPayload.id;
+    }
+
+    try {
+      for (const file of selectedFiles) {
+        const pathSegments = file.webkitRelativePath.split('/').filter(Boolean);
+        let folderId = rootParentId;
+        for (const segment of pathSegments.slice(0, -1)) folderId = await getOrCreateFolder(folderId, segment);
+        const groupedFiles = uploadsByFolder.get(folderId) ?? [];
+        groupedFiles.push(file);
+        uploadsByFolder.set(folderId, groupedFiles);
+      }
+      for (const [folderId, groupedFiles] of uploadsByFolder) enqueue(groupedFiles, folderId);
+      setNotice('');
+      sileo.success({ title: copy.folderQueued, duration: 4000 });
+      await refreshFiles(false, rootParentId);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : copy.folderUploadFailed;
+      setNotice(message);
+      sileo.error({ title: copy.folderUploadFailed, description: message, duration: 5000 });
+    }
+  }
+
+  function navigateToFolder(folderId: string | null): void {
+    refreshVersion.current += 1;
+    setCurrentFolderId(folderId);
   }
 
   useEffect(() => {
     if (authStatus !== 'authenticated') {
       refreshVersion.current += 1;
       setFiles([]);
+      setFolders([]);
+      setCurrentFolder(null);
+      setBreadcrumbs([]);
+      setCurrentFolderId(null);
       setTrash([]);
     }
     return () => { refreshVersion.current += 1; };
@@ -317,11 +402,17 @@ export default function KornSpaceApp() {
           <FilesPage
             copy={copy}
             files={files}
+            folders={folders}
+            currentFolder={currentFolder}
+            breadcrumbs={breadcrumbs}
+            currentFolderId={currentFolderId}
             trash={trash}
             initialTrash={pathname === '/trash'}
             notice={notice}
             apiUrl={apiUrl}
             onUpload={enqueue}
+            onUploadDirectory={(selectedFiles) => void uploadDirectory(selectedFiles)}
+            onNavigate={navigateToFolder}
             onMoveToTrash={(file) => void mutateFile(`/api/files/${encodeURIComponent(file.id)}/trash`, 'POST')}
             onDeletePermanent={(id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/permanent`, 'DELETE')}
             onRestore={(id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/restore`, 'POST')}
