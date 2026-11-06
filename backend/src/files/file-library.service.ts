@@ -1,6 +1,7 @@
-import { HttpException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { fileAccess, nameConflict, validateFileName } from './file-policy';
+import type { ShareRecipient } from './file.types';
 
 export interface LibraryFilters {
   search?: string;
@@ -57,12 +58,25 @@ export class FileLibraryService {
     await this.prisma.fileVisit.upsert({ where: { fileId_userId: { fileId: id, userId } }, create: { fileId: id, userId }, update: { openedAt: new Date() } });
   }
 
-  async grant(id: string, userId: string, email: string, role: 'READER' | 'EDITOR') {
+  async resolveRecipient(id: string, userId: string, identifier: string): Promise<ShareRecipient> {
     const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId: userId, deletedAt: null, deletionPending: false } });
     if (!file) throw new NotFoundException('No se encontró el archivo.');
-    const recipient = await this.prisma.user.findFirst({ where: { email: { equals: email.trim(), mode: 'insensitive' } } });
-    if (!recipient || recipient.id === userId) throw new NotFoundException('No se encontró un destinatario válido.');
-    return this.prisma.filePermission.upsert({ where: { fileId_userId: { fileId: id, userId: recipient.id } }, create: { fileId: id, userId: recipient.id, role }, update: { role }, select: { userId: true, role: true } });
+    const value = identifier.trim();
+    if (value.length < 3 || value.length > 255) throw new BadRequestException('Indica un correo o nombre de usuario válido.');
+    const emailLookup = value.includes('@') && !value.startsWith('@');
+    const recipients = await this.prisma.user.findMany({
+      where: { id: { not: userId }, ...(emailLookup ? { email: { equals: value, mode: 'insensitive' } } : { username: { equals: value.replace(/^@/u, ''), mode: 'insensitive' } }) },
+      select: { id: true, username: true, email: true, name: true }, take: 2,
+    });
+    if (recipients.length !== 1) throw new NotFoundException('No se encontró un destinatario válido.');
+    const recipient = recipients[0];
+    return { userId: recipient.id, username: recipient.username, email: recipient.email, name: recipient.name };
+  }
+
+  async grant(id: string, userId: string, identifier: string, role: 'READER' | 'EDITOR', expectedRecipientId?: string) {
+    const recipient = await this.resolveRecipient(id, userId, identifier);
+    if (expectedRecipientId && recipient.userId !== expectedRecipientId) throw new ConflictException('El destinatario cambió. Compruébalo antes de compartir.');
+    return this.prisma.filePermission.upsert({ where: { fileId_userId: { fileId: id, userId: recipient.userId } }, create: { fileId: id, userId: recipient.userId, role }, update: { role }, select: { userId: true, role: true } });
   }
 
   async revoke(id: string, ownerId: string, userId: string): Promise<void> {

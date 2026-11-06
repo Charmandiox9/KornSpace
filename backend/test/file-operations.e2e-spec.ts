@@ -29,6 +29,12 @@ function harness() {
   const now = new Date();
   const file: StoredFile = { id: '11111111-1111-4111-8111-111111111111', ownerId: 'owner', folderId: null, name: 'one.txt', contentType: 'text/plain', sizeBytes: 4n, s3Key: 'files/one', checksum: 'hash', status: 'AVAILABLE', createdAt: now, updatedAt: now, deletedAt: null, deletionPending: false };
   const records = [file];
+  const recipients = [
+    { id: '44444444-4444-4444-8444-444444444444', username: 'newperson', email: 'new@example.test', name: 'New Person' },
+    { id: 'owner', username: 'owner', email: 'owner@example.test', name: 'Owner' },
+  ];
+  const grants = new Map<string, 'READER' | 'EDITOR'>([['reader', 'READER'], ['editor', 'EDITOR']]);
+  let recipientQueries = 0;
   let failS3 = false;
   let failDatabaseDelete = false;
   let deletes = 0;
@@ -43,14 +49,14 @@ function harness() {
     if (where.deletedAt === null && record.deletedAt !== null) return false;
     if (where.deletedAt && !(where.deletedAt instanceof Date) && !record.deletedAt) return false;
     if (where.deletedAt instanceof Date && record.deletedAt?.getTime() !== where.deletedAt.getTime()) return false;
-    if (where.permissions && !['reader', 'editor'].includes(where.permissions.some.userId)) return false;
+    if (where.permissions && !grants.has(where.permissions.some.userId)) return false;
     return true;
   }
   const delegate = {
     create: async () => { throw new Error('Database create unavailable'); },
     findFirst: async ({ where }: { where: TestWhere }) => {
       const found = records.find((record) => matches(record, where));
-      return found ? { ...found, permissions: where.permissions ? [{ role: where.permissions.some.userId === 'editor' ? 'EDITOR' : 'READER' }] : [] } : null;
+      return found ? { ...found, permissions: where.permissions ? [{ role: grants.get(where.permissions.some.userId) }] : [] } : null;
     },
     findMany: async ({ where }: { where: TestWhere }) => records.filter((record) => matches(record, where)),
     update: async ({ where, data }: { where: TestWhere; data: Partial<StoredFile> }) => {
@@ -66,13 +72,19 @@ function harness() {
       const index = records.findIndex((record) => matches(record, where)); if (index >= 0) records.splice(index, 1); return { count: index >= 0 ? 1 : 0 };
     },
   };
-  const prisma = { storedFile: delegate, fileVisit: { upsert: async () => { visits += 1; } } } as unknown as PrismaService;
+  const prisma = { user: { findMany: async ({ where }: { where: { id: { not: string }; email?: { equals: string }; username?: { equals: string } } }) => {
+    recipientQueries += 1;
+    return recipients.filter((user) => user.id !== where.id.not && (where.email ? user.email.toLowerCase() === where.email.equals.toLowerCase() : user.username.toLowerCase() === where.username?.equals.toLowerCase()));
+  } }, filePermission: {
+    upsert: async ({ create }: { create: { userId: string; role: 'READER' | 'EDITOR' } }) => { grants.set(create.userId, create.role); return { userId: create.userId, role: create.role }; },
+    deleteMany: async ({ where }: { where: { userId: string } }) => { grants.delete(where.userId); return { count: 1 }; },
+  }, storedFile: delegate, fileVisit: { upsert: async () => { visits += 1; } } } as unknown as PrismaService;
   prisma.$transaction = (async (callback: (tx: PrismaService) => Promise<unknown>) => {
     const snapshot = records.map((record) => ({ ...record }));
     try { return await callback(prisma); } catch (error) { records.splice(0, records.length, ...snapshot); throw error; }
   }) as unknown as typeof prisma.$transaction;
   const s3 = { send: async (command: unknown) => { if (command instanceof PutObjectCommand) { assert.ok(command.input.Body instanceof Readable); for await (const chunk of command.input.Body) { void chunk; } } if (command instanceof DeleteObjectCommand) { deletes += 1; if (failS3) throw new Error('S3 unavailable'); } return { Body: Readable.from('test') }; } } as unknown as S3Client;
-  return { prisma, library: new FileLibraryService(prisma), files: new FilesService(prisma, { s3, sqs: {} as SQSClient }), records, file, setS3Failure: (value: boolean) => { failS3 = value; }, setDeleteFailure: (value: boolean) => { failDatabaseDelete = value; }, counts: () => ({ deletes, visits }) };
+  return { grants, recipients, getRecipientQueries: () => recipientQueries, prisma, library: new FileLibraryService(prisma), files: new FilesService(prisma, { s3, sqs: {} as SQSClient }), records, file, setS3Failure: (value: boolean) => { failS3 = value; }, setDeleteFailure: (value: boolean) => { failDatabaseDelete = value; }, counts: () => ({ deletes, visits }) };
 }
 
 test('file roles enforce uniform reader denial, editor rename/trash, explicit replacement and personal access', async () => {
@@ -121,6 +133,24 @@ test('file REST rename validates names, denies readers and permits editors with 
     const address = app.getHttpServer().address() as AddressInfo;
     const url = `http://127.0.0.1:${address.port}/api/files/${h.file.id}`;
     const send = (name: string, user: string) => fetch(url, { method: 'PATCH', headers: { 'content-type': 'application/json', 'x-test-user': user }, body: JSON.stringify({ name }) });
+    const recipient = h.recipients[0];
+    const lookup = await fetch(`${url}/recipients?identifier=%40NEWPERSON`, { headers: { 'x-test-user': 'owner' } });
+    assert.equal(lookup.status, 200);
+    assert.deepEqual(await lookup.json(), { userId: recipient.id, username: recipient.username, email: recipient.email, name: recipient.name });
+    assert.equal((await fetch(`${url}/recipients?identifier=newperson`, { headers: { 'x-test-user': 'reader' } })).status, 404);
+    assert.equal((await fetch(`${url}/recipients?identifier=ne`, { headers: { 'x-test-user': 'owner' } })).status, 400);
+    const grant = (body: Record<string, string>) => fetch(`${url}/permissions`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-test-user': 'owner' }, body: JSON.stringify(body) });
+    assert.equal((await grant({ identifier: recipient.username, recipientId: recipient.id, role: 'READER' })).status, 200);
+    const sharedDownload = await fetch(url, { headers: { 'x-test-user': recipient.id } });
+    assert.equal(sharedDownload.status, 200);
+    assert.equal(await sharedDownload.text(), 'test');
+    assert.equal((await send('denied.txt', recipient.id)).status, 403);
+    assert.equal((await grant({ email: recipient.email, role: 'EDITOR' })).status, 200);
+    assert.equal((await send('allowed.txt', recipient.id)).status, 200);
+    assert.equal((await fetch(`${url}/permissions/${recipient.id}`, { method: 'DELETE', headers: { 'x-test-user': 'owner' } })).status, 204);
+    assert.equal((await fetch(url, { headers: { 'x-test-user': recipient.id } })).status, 404);
+    assert.equal((await grant({ identifier: recipient.username, email: recipient.email, role: 'READER' })).status, 400);
+    assert.equal((await grant({ identifier: recipient.username, recipientId: '55555555-5555-4555-8555-555555555555', role: 'READER' })).status, 409);
     assert.equal((await send('new.txt', 'reader')).status, 403);
     assert.equal((await send('bad/name', 'editor')).status, 400);
     assert.equal((await send('new.txt', 'stranger')).status, 404);
@@ -157,4 +187,33 @@ test('restoring a colliding name requires confirmation and keeps the replaced fi
   await h.files.restoreFromTrash(h.file.id, 'owner', active.id);
   assert.equal(h.records.find(file => file.id === h.file.id)?.deletedAt, null);
   assert.ok(h.records.find(file => file.id === active.id)?.deletedAt);
+});
+
+
+test('sharing resolves exact email and username, persists reader/editor permissions and supports revocation', async () => {
+  const h = harness(); const target = h.recipients[0];
+  assert.equal((await h.library.resolveRecipient(h.file.id, 'owner', '@NEWPERSON')).email, target.email);
+  assert.equal((await h.library.resolveRecipient(h.file.id, 'owner', 'NEW@example.test')).username, target.username);
+  const previousQueries = h.getRecipientQueries();
+  await assert.rejects(h.library.resolveRecipient(h.file.id, 'reader', target.username), NotFoundException);
+  assert.equal(h.getRecipientQueries(), previousQueries);
+  await assert.rejects(h.library.resolveRecipient(h.file.id, 'owner', 'newpers'), NotFoundException);
+  await assert.rejects(h.library.resolveRecipient(h.file.id, 'owner', 'owner'), NotFoundException);
+  await h.library.grant(h.file.id, 'owner', target.username, 'READER', target.id);
+  assert.equal(h.grants.get(target.id), 'READER');
+  const download = await h.files.getDownload(h.file.id, target.id); download.body.destroy();
+  await assert.rejects(h.library.rename(h.file.id, target.id, 'new.txt'), ForbiddenException);
+  await h.library.grant(h.file.id, 'owner', target.email, 'EDITOR', target.id);
+  assert.equal(h.grants.get(target.id), 'EDITOR');
+  await h.library.rename(h.file.id, target.id, 'shared.txt');
+  await h.library.revoke(h.file.id, 'owner', target.id);
+  await assert.rejects(h.files.getDownload(h.file.id, target.id), NotFoundException);
+});
+
+test('sharing rejects ambiguous emails and a changed confirmation target without granting permission', async () => {
+  const h = harness(); const target = h.recipients[0];
+  await assert.rejects(h.library.grant(h.file.id, 'owner', target.username, 'READER', '55555555-5555-4555-8555-555555555555'));
+  assert.equal(h.grants.has(target.id), false);
+  h.recipients.push({ ...target, id: '55555555-5555-4555-8555-555555555555', username: 'otherperson' });
+  await assert.rejects(h.library.resolveRecipient(h.file.id, 'owner', target.email), NotFoundException);
 });

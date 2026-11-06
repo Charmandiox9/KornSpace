@@ -11,6 +11,8 @@ La página `/home` muestra los archivos abiertos recientemente por la sesión ac
 
 Compartir un archivo no concede acceso a sus carpetas ni a otros archivos. Sólo el propietario concede o revoca permisos, y el destinatario debe ser un usuario registrado. Revocar un permiso afecta inmediatamente a las siguientes peticiones y consultas.
 
+Se puede indicar un correo o nombre de usuario exacto (`usuario` o `@usuario`, sin distinguir mayúsculas). Antes de guardar, el diálogo muestra el usuario y su correo asociado. La búsqueda requiere ser propietario del archivo y no devuelve coincidencias parciales ni listados de cuentas. Se excluye al propio propietario; los correos ambiguos no conceden permisos. La confirmación incluye el ID de la cuenta mostrada y el servidor vuelve a comprobarlo. Compartir concede acceso dentro de KornSpace; no envía invitaciones por correo.
+
 ## Nombres y reemplazo
 
 Los nombres se recortan y deben contener entre 1 y 255 caracteres, sin separadores de ruta ni caracteres de control. La unicidad aplica a archivos activos del mismo propietario y ubicación, incluida la raíz. La comparación distingue mayúsculas y minúsculas, como la política de carpetas.
@@ -32,7 +34,8 @@ Los comandos REST se documentan en `/api/docs`:
 - `PATCH /api/files/:id`: renombrar, con reemplazo confirmado opcional.
 - `POST /api/files/name-conflict`: comprobar nombre y carpeta antes de enviar bytes.
 - `POST /api/files/:id/access`: registrar apertura explícita.
-- `PUT /api/files/:id/permissions`: conceder o actualizar lector/editor por correo.
+- `GET /api/files/:id/recipients?identifier=usuario`: resolver el destinatario y mostrar su correo, sólo como propietario.
+- `PUT /api/files/:id/permissions`: conceder o actualizar lector/editor con `identifier`, `recipientId` y `role`. Se conserva `email` como alias para clientes anteriores.
 - `DELETE /api/files/:id/permissions/:userId`: revocar permiso.
 - `POST /api/files/:id/trash`: enviar a la papelera.
 - `POST /api/files/:id/restore`: restaurar; admite `?replaceFileId=UUID`.

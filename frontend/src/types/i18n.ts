@@ -24,6 +24,11 @@ export interface TranslationCatalog {
   replaceDescription: string;
   shareFile: string;
   shareEmail: string;
+  shareSearching: string;
+  shareNotFound: string;
+  shareLookupError: string;
+  shareRecipientChanged: string;
+  shareRetry: string;
   shareReader: string;
   shareEditor: string;
   shareSuccess: string;

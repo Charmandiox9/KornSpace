@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBadRequestResponse, ApiConflictResponse, ApiForbiddenResponse, ApiNoContentResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiProperty, ApiPropertyOptional, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { IsEmail, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -6,6 +6,7 @@ import type { AuthenticatedUserContext } from '../auth/auth.types';
 import { SessionJwtGuard } from '../auth/session-jwt.guard';
 import { FileLibraryService } from './file-library.service';
 import { FilesService } from './files.service';
+import type { ShareRecipient } from './file.types';
 
 class FileNameDto {
   @ApiProperty({ maxLength: 255 }) @IsString() @MinLength(1) @MaxLength(255) name!: string;
@@ -16,8 +17,19 @@ class CheckFileNameDto {
   @ApiPropertyOptional({ format: 'uuid', nullable: true }) @IsOptional() @IsUUID() folderId?: string | null;
 }
 class GrantFileDto {
-  @ApiProperty() @IsEmail() email!: string;
+  @ApiPropertyOptional({ description: 'Correo o nombre de usuario exacto; admite @usuario.' }) @IsOptional() @IsString() @MinLength(3) @MaxLength(255) identifier?: string;
+  @ApiPropertyOptional({ description: 'Alias compatible con clientes anteriores. Usar email o identifier, no ambos.' }) @IsOptional() @IsEmail() email?: string;
+  @ApiPropertyOptional({ format: 'uuid', description: 'Destinatario mostrado al confirmar; evita compartir con una cuenta distinta si cambió el identificador.' }) @IsOptional() @IsUUID() recipientId?: string;
   @ApiProperty({ enum: ['READER', 'EDITOR'] }) @IsIn(['READER', 'EDITOR']) role!: 'READER' | 'EDITOR';
+}
+class RecipientLookupDto {
+  @ApiProperty({ description: 'Correo o nombre de usuario exacto; no devuelve listados ni coincidencias parciales.' }) @IsString() @MinLength(3) @MaxLength(255) identifier!: string;
+}
+class ShareRecipientDto implements ShareRecipient {
+  @ApiProperty({ format: 'uuid' }) userId!: string;
+  @ApiProperty({ type: String, nullable: true }) username!: string | null;
+  @ApiProperty() email!: string;
+  @ApiProperty({ type: String, nullable: true }) name!: string | null;
 }
 class RenameResponseDto {
   @ApiProperty({ format: 'uuid' }) id!: string;
@@ -56,8 +68,15 @@ export class FileLibraryController {
   @Post(':id/access') @HttpCode(204) @ApiOperation({ summary: 'Registra una apertura explícita para los recientes personales' }) @ApiNoContentResponse()
   access(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext) { return this.library.recordAccess(id, user.userId); }
 
-  @Put(':id/permissions') @ApiOperation({ summary: 'Concede lectura o edición a un usuario registrado; sólo el propietario' }) @ApiOkResponse({ type: PermissionResponseDto })
-  grant(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: GrantFileDto, @CurrentUser() user: AuthenticatedUserContext) { return this.library.grant(id, user.userId, body.email, body.role); }
+  @Get(':id/recipients') @ApiOperation({ summary: 'Resuelve correo o usuario exacto para confirmar el destinatario; sólo el propietario' }) @ApiOkResponse({ type: ShareRecipientDto })
+  recipient(@Param('id', new ParseUUIDPipe()) id: string, @Query() query: RecipientLookupDto, @CurrentUser() user: AuthenticatedUserContext) { return this.library.resolveRecipient(id, user.userId, query.identifier); }
+
+  @Put(':id/permissions') @ApiOperation({ summary: 'Concede lectura o edición por correo o usuario; sólo el propietario' }) @ApiOkResponse({ type: PermissionResponseDto })
+  @ApiConflictResponse({ description: 'El destinatario ya no coincide con recipientId. Resolver de nuevo antes de confirmar.' })
+  grant(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: GrantFileDto, @CurrentUser() user: AuthenticatedUserContext) {
+    if (Boolean(body.identifier) === Boolean(body.email)) throw new BadRequestException('Indica correo o usuario en identifier, o email, de forma exclusiva.');
+    return this.library.grant(id, user.userId, body.identifier ?? body.email!, body.role, body.recipientId);
+  }
 
   @Delete(':id/permissions/:userId') @HttpCode(204) @ApiOperation({ summary: 'Revoca un permiso; sólo el propietario' }) @ApiNoContentResponse()
   revoke(@Param('id', new ParseUUIDPipe()) id: string, @Param('userId', new ParseUUIDPipe()) target: string, @CurrentUser() user: AuthenticatedUserContext) { return this.library.revoke(id, user.userId, target); }

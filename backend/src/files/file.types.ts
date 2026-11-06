@@ -4,6 +4,13 @@ import type { UploadPhase } from './upload-registry.service';
 
 export type StoredFileStatus = 'PROCESSING' | 'AVAILABLE' | 'FAILED';
 
+export interface ShareRecipient {
+  userId: string;
+  username: string | null;
+  email: string;
+  name: string | null;
+}
+
 export interface StoredFileResponse {
   id: string;
   name: string;

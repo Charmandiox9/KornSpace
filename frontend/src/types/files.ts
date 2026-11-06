@@ -16,6 +16,18 @@ export interface StoredFile {
   deletedAt?: string | null;
 }
 
+export interface ShareRecipient {
+  userId: string;
+  username: string | null;
+  email: string;
+  name: string | null;
+}
+
+export interface ResolvedShareRecipient {
+  identifier: string;
+  recipient: ShareRecipient;
+}
+
 export interface StoredFolder {
   id: string;
   name: string;

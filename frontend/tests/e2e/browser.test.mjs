@@ -123,6 +123,8 @@ test('session navigation and multiple uploads in a real browser with a simulated
     const uploadDestinations = [];
     const dropFolder = { id: 'drop-target', name: 'Drop destination', ownerId: user.id, parentId: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
     const uploads = [];
+    const permissionWrites = [];
+    const peer = { userId: '44444444-4444-4444-8444-444444444444', username: 'recipient', email: 'peer@example.test', name: 'Recipient' };
     const trashedRecords = [];
     const operations = new Map();
     const interceptionErrors = [];
@@ -162,6 +164,14 @@ test('session navigation and multiple uploads in a real browser with a simulated
         else if (url.pathname === '/api/auth/refresh') { refreshes += 1; status = 401; }
         else if (expired) status = 401;
         else if (url.pathname === '/graphql') { body = { data: { all: records, recent: records.filter(file => file.openedAt) } }; }
+        else if (event.request.method === 'GET' && url.pathname.endsWith('/recipients')) {
+          const identifier = (url.searchParams.get('identifier') ?? '').toLowerCase();
+          if (['recipient', '@recipient', peer.email].includes(identifier)) body = peer;
+          else { status = 404; body = { message: 'Recipient not found' }; }
+        }
+        else if (event.request.method === 'PUT' && url.pathname.endsWith('/permissions')) {
+          const requestBody = JSON.parse(event.request.postData ?? '{}'); permissionWrites.push(requestBody); body = { userId: peer.userId, role: requestBody.role };
+        }
         else if (url.pathname === '/api/files/name-conflict') {
           const requestBody = JSON.parse(event.request.postData ?? '{}');
           const existing = records.find(file => file.name === requestBody.name && (file.folderId ?? null) === (requestBody.folderId ?? null));
@@ -362,6 +372,39 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await until(() => evaluate("Boolean(document.querySelector('article'))"), 'cards after rename');
     });
 
+    await t.test('sharing confirms username and associated email, blocks unknown users and supports email grants', async () => {
+      const openShare = async () => {
+        await until(() => evaluate("Boolean(document.querySelector('article'))"), 'file cards before sharing');
+        await evaluate("Array.from(document.querySelector('article').querySelectorAll('button')).find(button => button.textContent === 'Compartir').click()");
+        await until(() => evaluate("Boolean(document.querySelector('dialog[open] input'))"), 'share dialog');
+      };
+      const setRecipient = async (value) => evaluateFunction(`function (value) {
+        const input = document.querySelector('dialog input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true }));
+      }`, value);
+      await openShare();
+      assert.equal(await evaluate("document.querySelector('dialog button[type=submit]').disabled"), true);
+      await setRecipient('@recipient');
+      await until(() => evaluate("document.querySelector('#share-recipient-status').textContent.includes('peer@example.test')"), 'email associated with username');
+      assert.equal(await evaluate("document.querySelector('#share-recipient-status').textContent.includes('@recipient')"), true);
+      await setRecipient('unknown-user');
+      assert.equal(await evaluate("document.querySelector('dialog button[type=submit]').disabled"), true);
+      await until(() => evaluate("document.querySelector('#share-recipient-status').textContent.includes('No se encontró')"), 'unknown recipient');
+      assert.equal(permissionWrites.length, 0);
+      await setRecipient('recipient');
+      await until(() => evaluate("!document.querySelector('dialog button[type=submit]').disabled"), 'verified username');
+      await evaluate("document.querySelector('dialog form').requestSubmit()");
+      await until(() => permissionWrites.length === 1, 'reader permission write');
+      assert.deepEqual(permissionWrites[0], { identifier: 'recipient', recipientId: peer.userId, role: 'READER' });
+      await until(() => evaluate("!document.querySelector('dialog[open]') && !document.querySelector('[aria-busy=true]')"), 'share completion');
+      await openShare(); await setRecipient(peer.email);
+      await until(() => evaluate("!document.querySelector('dialog button[type=submit]').disabled"), 'verified email');
+      await evaluate("const role = document.querySelector('dialog select'); role.value = 'EDITOR'; role.dispatchEvent(new Event('change', { bubbles: true }))");
+      await evaluate("document.querySelector('dialog form').requestSubmit()");
+      await until(() => permissionWrites.length === 2, 'editor permission write');
+      assert.deepEqual(permissionWrites[1], { identifier: peer.email, recipientId: peer.userId, role: 'EDITOR' });
+      await until(() => evaluate("!document.querySelector('dialog[open]')"), 'email share completion');
+    });
+
     await t.test('home shows personal recent files and combines type, owner, location and search filters', async () => {
       await evaluate("document.querySelector('a[href=\"/home\"]').click()");
       await until(() => evaluate("Boolean(document.querySelector('input[type=search]'))"), 'home filters');
@@ -459,7 +502,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
 
     await t.test('groups simultaneous and newly added uploads in one resizing toast with independent results', async () => {
       await evaluate("document.querySelectorAll('[data-upload-toaster] button[aria-labelledby*=dismiss]').forEach(button => button.click())");
-      await until(() => evaluate("document.querySelectorAll('[data-sileo-toast]:not([data-exiting=true])').length === 0"), 'previous notification dismissal');
+      await until(() => evaluate("document.querySelectorAll('[data-sileo-toast]').length === 0"), 'previous notifications fully removed');
       await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 512 * 1024 });
       const names = ['toast-first.txt', 'toast-second.txt', 'toast-third.txt'];
       const paths = names.map((name) => path.join(temporaryDirectory, name));
