@@ -10,7 +10,7 @@ export interface MascotParticle {
 
 export interface MascotParticleCloud {
   mesh: THREE.InstancedMesh;
-  update(elapsed: number, assembling: boolean): void;
+  update(elapsed: number, dispersion: number): void;
   dispose(): void;
 }
 
@@ -20,4 +20,11 @@ export interface MascotSurfaceTriangle {
   b: THREE.Vector3;
   c: THREE.Vector3;
   cumulativeArea: number;
+}
+
+export interface MascotTimeline {
+  phase: 'assembling' | 'performing' | 'dispersing';
+  cycle: number;
+  dispersion: number;
+  action: number;
 }

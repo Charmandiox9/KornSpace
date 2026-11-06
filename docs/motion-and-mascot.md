@@ -4,7 +4,9 @@ La identidad hace referencia a un espacio de trabajo y almacenamiento. El gallo 
 
 ## Login
 
-`LoginMascotScene` carga dinámicamente Three.js 0.187 y un modelo procedural original. El gallo y las carpetas se forman con 4800 tetraedros mediante un único `InstancedMesh`, muestreando por área las superficies geométricas del modelo con una semilla reproducible. Las piezas se reúnen durante 1.8 segundos y después mantienen un movimiento autónomo suave, sin necesidad de mover el ratón. Al iniciar con movimiento reducido se muestra directamente la figura formada. En escritorio, la escena ocupa el panel izquierdo y el acceso con Google el derecho, alineados al centro; en móvil el acceso aparece primero.
+`LoginMascotScene` carga dinámicamente Three.js 0.187 y un modelo procedural original. El gallo y las carpetas se forman con 14000 tetraedros mediante un único `InstancedMesh`, muestreando las superficies geométricas con una semilla reproducible. El muestreo reserva densidad adicional para ojos, dedos y etiquetas pequeñas; las piezas más finas son menores para conservar los detalles. La figura incluye contornos de ojos, pupilas con brillo, cejas, seis plumas con nervaduras, dedos y etiquetas de documentos.
+
+La secuencia se reproduce sin interacción en ciclos de 12 segundos: formación (2.4 s), movimiento del gallo y la carpeta (7.2 s), y dispersión (2.4 s). La pose dispersa final coincide con el inicio del siguiente ciclo. Pausar conserva la posición de la secuencia y Play la continúa. Al iniciar con movimiento reducido se muestra directamente la figura formada; Play permanece operativo y permite activar explícitamente la animación y conservar esa preferencia. En escritorio, la escena ocupa el panel izquierdo y el acceso con Google el derecho, alineados al centro; en móvil el acceso aparece primero.
 
 El renderer usa WebGL 2, resolución limitada a 1.5 píxeles por píxel CSS y renderizado a unos 30 fotogramas por segundo. La escena se detiene al quedar fuera de la vista, ocultarse la pestaña, activar movimiento reducido o pulsar Pausar. Existe una marca estática de respaldo si WebGL no está disponible o se pierde el contexto.
 
@@ -20,4 +22,4 @@ La reproducción comienza automáticamente si no se ha solicitado reducir el mov
 
 ## Dependencias y verificación
 
-Se añadió únicamente Three.js y sus tipos para la escena solicitada, mediante pnpm. El parche versionado de Sileo se conserva en el lockfile. Las pruebas de navegador usan un renderer software para comprobar el canvas, pausa/reanudación, movimiento reducido, cambio de tema, móvil y respaldo ante pérdida de contexto.
+Se añadió únicamente Three.js y sus tipos para la escena solicitada, mediante pnpm. El parche versionado de Sileo se conserva en el lockfile. Las pruebas unitarias verifican varios ciclos y sus límites. Las pruebas de navegador usan un renderer software para comprobar el reinicio automático, pausa/reanudación mediante comparación de capturas del canvas, Play con movimiento reducido, cambio de tema, móvil y respaldo ante pérdida de contexto.

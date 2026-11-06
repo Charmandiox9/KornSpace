@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createMascotParticles } from './mascot-particles';
+import { getMascotTimeline } from './mascot-timeline';
 import type { MascotSceneHandle, MascotSceneOptions } from '@/types';
 
 /** A lightweight, original workspace rooster. No external models, fonts or textures. */
@@ -13,7 +14,7 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
   canvas.style.width = '100%'; canvas.style.height = '100%'; host.appendChild(canvas);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 30);
-  camera.position.set(3.2, 1.8, 7.4); camera.lookAt(0, 0.12, 0);
+  camera.position.set(2.2, 1.65, 7.4); camera.lookAt(0, 0.12, 0);
   const materials = new Set<THREE.Material>();
   const geometries = new Set<THREE.BufferGeometry>();
   function material(color: number, roughness = 0.65) {
@@ -36,13 +37,16 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
     const mesh = new THREE.Mesh(geometry(new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: true, bevelSize: 0.04, bevelThickness: 0.035, bevelSegments: 3, steps: 1 })), surface);
     group.add(mesh); box(group, paper, [0.06, 0.23, -0.03], [1.13, 0.67, 0.08]);
     box(group, paper, [-0.4, -0.16, 0.18], [0.23, 0.075, 0.02]);
+    box(group, paper, [-0.28, -0.27, 0.18], [0.47, 0.025, 0.02]);
+    box(group, paper, [-0.36, -0.33, 0.18], [0.31, 0.025, 0.02]);
     return group;
   }
   const base = new THREE.Mesh(geometry(new THREE.CylinderGeometry(1.95, 2.02, 0.16, 64)), pedestalMaterial); base.position.y = -1.4; scene.add(base);
   const rooster = new THREE.Group(); rooster.position.x = -0.32; scene.add(rooster);
   const tail = new THREE.Group(); rooster.add(tail);
-  [0x6f83cc, 0x8f77cc, 0x439e95, 0x70b6a2].forEach((color, index) => {
-    const feather = oval(tail, material(color), [-0.54 - index * 0.13, 0.20 + index * 0.12, -0.28 - index * 0.02], [0.14, 0.62, 0.12]); feather.rotation.z = 0.72 + index * 0.16;
+  [0x545ca7, 0x6f83cc, 0x8f77cc, 0x439e95, 0x70b6a2, 0x287b7c].forEach((color, index) => {
+    const feather = oval(tail, material(color), [-0.51 - index * 0.09, 0.16 + index * 0.085, -0.28 - index * 0.025], [0.13, 0.65 + index * 0.02, 0.10]); feather.rotation.z = 0.58 + index * 0.16;
+    oval(feather, gold, [0, 0.1, 0.78], [0.075, 0.75, 0.10]);
   });
   oval(rooster, white, [0, 0, 0], [0.61, 0.78, 0.46]);
   oval(rooster, white, [0.03, 0.58, 0.04], [0.32, 0.55, 0.3]);
@@ -51,15 +55,23 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
   [-0.22, 0, 0.21].forEach((x, index) => { const comb = oval(head, red, [x, 0.44 + (index === 1 ? 0.06 : 0), 0], [0.14, index === 1 ? 0.25 : 0.20, 0.105]); comb.rotation.z = -x * 0.8; });
   const eyes = new THREE.Group(); head.add(eyes);
   [-0.19, 0.19].forEach((x) => {
-    oval(eyes, paper, [x, 0.08, 0.332], [0.112, 0.14, 0.05]);
-    oval(eyes, ink, [x + 0.018, 0.067, 0.379], [0.048, 0.069, 0.025]);
-    oval(eyes, paper, [x + 0.028, 0.088, 0.4], [0.014, 0.018, 0.01]);
+    oval(eyes, ink, [x, 0.08, 0.342], [0.129, 0.16, 0.055]);
+    oval(eyes, paper, [x, 0.08, 0.372], [0.112, 0.14, 0.05]);
+    oval(eyes, ink, [x + 0.018, 0.067, 0.423], [0.062, 0.082, 0.025]);
+    oval(eyes, paper, [x + 0.035, 0.1, 0.448], [0.022, 0.025, 0.012]);
+    const brow = oval(head, white, [x, 0.258, 0.33], [0.14, 0.038, 0.055]); brow.rotation.z = -x * 0.7;
   });
   const beak = new THREE.Mesh(geometry(new THREE.ConeGeometry(0.145, 0.31, 4)), gold); beak.rotation.x = Math.PI / 2; beak.rotation.z = Math.PI / 4; beak.position.set(0, -0.05, 0.47); head.add(beak);
   oval(head, red, [0, -0.27, 0.28], [0.085, 0.19, 0.09]);
   const leftWing = oval(rooster, white, [-0.55, -0.05, 0.19], [0.18, 0.46, 0.22]); leftWing.rotation.z = 0.4;
   const rightWing = oval(rooster, white, [0.55, -0.02, 0.19], [0.18, 0.46, 0.22]); rightWing.rotation.z = -0.4;
-  [-0.25, 0.25].forEach((x) => { box(rooster, gold, [x, -0.96, 0.02], [0.065, 0.4, 0.065]); oval(rooster, gold, [x, -1.19, 0.13], [0.16, 0.07, 0.24]); });
+  [-0.25, 0.25].forEach((x) => {
+    box(rooster, gold, [x, -0.96, 0.02], [0.065, 0.4, 0.065]);
+    oval(rooster, gold, [x, -1.19, 0.13], [0.14, 0.07, 0.17]);
+    [-1, 0, 1].forEach((toe) => {
+      const claw = oval(rooster, gold, [x + toe * 0.075, -1.20, 0.27], [0.045, 0.045, 0.14]); claw.rotation.y = toe * 0.25;
+    });
+  });
   const heldFolder = folder(violet); heldFolder.position.set(0, -0.16, 0.57); heldFolder.scale.setScalar(0.82); heldFolder.rotation.z = -0.09; rooster.add(heldFolder);
   oval(rooster, white, [-0.48, -0.22, 0.75], [0.12, 0.16, 0.1]); oval(rooster, white, [0.5, -0.17, 0.75], [0.12, 0.16, 0.1]);
   const stack = new THREE.Group(); stack.position.set(1.25, -0.87, -0.05); stack.rotation.y = -0.23; scene.add(stack);
@@ -74,9 +86,10 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
   const key = new THREE.DirectionalLight(0xffefd9, 3); key.position.set(-3, 5, 5); scene.add(key);
   const fill = new THREE.DirectionalLight(0xa8b9ff, 2); fill.position.set(4, 2, -3); scene.add(fill);
   const cloud = createMascotParticles([rooster, stack]); scene.add(cloud.mesh);
-  cloud.update(0, options.motion);
+  cloud.update(0, options.motion ? 1 : 0);
   canvas.dataset.sceneStyle = 'geometric-particles';
-  canvas.dataset.scenePhase = options.motion ? 'assembling' : 'idle';
+  canvas.dataset.scenePhase = options.motion ? 'assembling' : 'performing';
+  canvas.dataset.sceneCycle = '0';
   let motion = options.motion, visible = true, disposed = false, lost = false, elapsed = 0, lastTime = 0;
   let targetX = 0, targetY = 0;
   const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
@@ -85,14 +98,23 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
     if (time - lastTime < 32) return;
     const delta = lastTime ? Math.min((time - lastTime) / 1000, 0.05) : 0;
     lastTime = time; elapsed += delta;
-    rooster.position.y = Math.sin(elapsed * 1.2) * 0.028;
-    head.rotation.y += (Math.sin(elapsed * 0.7) * 0.12 + targetX * 0.18 - head.rotation.y) * 0.07;
-    head.rotation.x += (targetY * 0.10 + Math.sin(elapsed * 0.65) * 0.018 - head.rotation.x) * 0.07;
-    heldFolder.rotation.z = -0.09 + Math.sin(elapsed * 0.85) * 0.025;
+    const timeline = getMascotTimeline(elapsed);
+    const action = timeline.action * Math.PI * 2;
+    const formed = 1 - timeline.dispersion;
+    rooster.position.y = Math.sin(action * 2) * 0.065 * formed;
+    rooster.rotation.y = Math.sin(action) * 0.18 * formed;
+    head.rotation.y += (Math.sin(action) * 0.3 * formed + targetX * 0.18 - head.rotation.y) * 0.12;
+    head.rotation.x += (targetY * 0.10 + Math.sin(action * 2) * 0.08 * formed - head.rotation.x) * 0.12;
+    heldFolder.rotation.z = -0.09 + Math.sin(action) * 0.08 * formed;
+    heldFolder.position.y = -0.16 + (1 - Math.cos(action)) * 0.05 * formed;
+    leftWing.rotation.z = 0.4 + Math.sin(action * 2) * 0.16 * formed;
+    rightWing.rotation.z = -0.4 - Math.sin(action * 2) * 0.16 * formed;
+    tail.rotation.z = Math.sin(action) * 0.12 * formed;
     const blink = elapsed % 5;
     eyes.scale.y = blink > 4.78 ? Math.max(0.08, Math.min(1, Math.abs(blink - 4.89) / 0.11)) : 1;
-    cloud.update(elapsed, true);
-    canvas.dataset.scenePhase = elapsed < 1.8 ? 'assembling' : 'idle';
+    cloud.update(elapsed, timeline.dispersion);
+    canvas.dataset.scenePhase = timeline.phase;
+    canvas.dataset.sceneCycle = String(timeline.cycle);
     render();
   }
   function synchronize() {

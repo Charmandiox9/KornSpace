@@ -742,14 +742,26 @@ test('session navigation and multiple uploads in a real browser with a simulated
       assert.equal(await evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneStyle'), 'geometric-particles');
       assert.equal(await evaluate('document.querySelector("[data-login-mascot]").getBoundingClientRect().right < document.querySelector("#login-title").closest("section").getBoundingClientRect().left'), true);
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'scene animation').catch(async (error) => { throw new Error(error.message + JSON.stringify(await evaluate(`({ motion: document.documentElement.dataset.motion, hidden: document.hidden, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches, bounds: document.querySelector('[data-login-mascot]').getBoundingClientRect().toJSON(), fallback: Boolean(document.querySelector('[data-mascot-fallback]')) })`))); });
-      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "idle"'), 'automatic geometric assembly without pointer interaction');
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "performing"'), 'automatic geometric assembly without pointer interaction');
+      const firstCycle = await evaluate('Number(document.querySelector("[data-mascot-canvas]").dataset.sceneCycle)');
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "dispersing"'), 'automatic geometric dispersal');
+      await until(async () => await evaluate('Number(document.querySelector("[data-mascot-canvas]").dataset.sceneCycle)') > firstCycle, 'automatic cycle restart', 45000);
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "performing"'), 'formation after automatic restart');
       await evaluate(`document.querySelector('button[aria-label="Pausar movimiento"]').click()`);
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "paused"'), 'scene pause');
+      const canvasBounds = await evaluate('document.querySelector("[data-login-mascot] [role=img]").getBoundingClientRect().toJSON()');
+      const canvasClip = { x: canvasBounds.x, y: canvasBounds.y, width: canvasBounds.width, height: canvasBounds.height, scale: 1 };
+      const pausedImage = await cdp.send('Page.captureScreenshot', { format: 'png', clip: canvasClip });
+      await delay(200);
+      assert.equal((await cdp.send('Page.captureScreenshot', { format: 'png', clip: canvasClip })).data, pausedImage.data, 'pause freezes the actual rendered figure');
       await evaluate(`document.querySelector('button[aria-label="Reanudar movimiento"]').click()`);
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'scene resume');
+      await delay(250);
+      assert.notEqual((await cdp.send('Page.captureScreenshot', { format: 'png', clip: canvasClip })).data, pausedImage.data, 'play changes the actual rendered figure');
       await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "paused" && document.documentElement.dataset.motion === "reduced"'), 'system reduced motion');
-      await evaluate(`document.querySelector('button[aria-label="Activar animaciones"]').click()`);
+      assert.equal(await evaluate('document.querySelector("[data-login-mascot] button").disabled'), false, 'the mascot play button must remain usable with reduced motion');
+      await evaluate(`document.querySelector('[data-login-mascot] button').click()`);
       await until(() => evaluate('localStorage.getItem("kornspace-motion") === "full" && document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'explicit playback despite system preference');
       await evaluate(`localStorage.removeItem('kornspace-motion'); window.dispatchEvent(new Event('kornspace-motion-change'))`);
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "paused"'), 'restore system motion preference');
@@ -760,6 +772,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await evaluate(`document.querySelector('button[aria-label="Activar animaciones"]').click()`);
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'motion restored');
       if (process.env.MASCOT_SCREENSHOT_PATH) {
+        await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "performing"'), 'formed mascot screenshot');
         const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' });
         await writeFile(process.env.MASCOT_SCREENSHOT_PATH, Buffer.from(screenshot.data, 'base64'));
         await evaluate(`document.querySelector('button[aria-label="Activar tema claro"]').click()`);
