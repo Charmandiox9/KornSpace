@@ -26,7 +26,7 @@ export class ManagedUploadsService implements OnModuleInit, OnModuleDestroy {
 
   private key(ownerId: string, operationId: string): string { return `${ownerId}:${operationId}`; }
 
-  async upload(source: Readable, name: string, contentType: string, sizeBytes: number, ownerId: string, operationId: string, signal: AbortSignal, folderId: string | null = null): Promise<UploadFileResult> {
+  async upload(source: Readable, name: string, contentType: string, sizeBytes: number, ownerId: string, operationId: string, signal: AbortSignal, folderId: string | null = null, replaceFileId?: string): Promise<UploadFileResult> {
     const record = await this.registry.begin(ownerId, operationId, false);
     const controller = new AbortController();
     const key = this.key(ownerId, operationId);
@@ -50,7 +50,7 @@ export class ManagedUploadsService implements OnModuleInit, OnModuleDestroy {
       let result: UploadFileResult;
       try {
         result = await this.files.upload(source, name, contentType, sizeBytes, ownerId, {
-          fileId: record.fileId, signal: controller.signal, folderId,
+          fileId: record.fileId, signal: controller.signal, folderId, replaceFileId,
           beforeCommit: async () => {
             controller.signal.throwIfAborted();
             const state = await this.registry.update(ownerId, operationId, (current) => current.phase === 'uploading'

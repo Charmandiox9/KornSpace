@@ -79,6 +79,7 @@ export function createManagedHarness() {
       },
     },
   } as unknown as PrismaService;
+  prisma.$transaction = (async (callback: (tx: PrismaService) => Promise<unknown>) => callback(prisma)) as unknown as typeof prisma.$transaction;
   const s3 = { send: async (command: unknown, requestOptions?: { abortSignal?: AbortSignal }) => {
     if (command instanceof PutObjectCommand) {
       storageSignals.push(requestOptions?.abortSignal);

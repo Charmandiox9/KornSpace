@@ -141,6 +141,7 @@ test('file HTTP upload enforces size, owner isolation, and controlled S3/DB fail
   const sqs = { send: async (): Promise<unknown> => ({}) } as unknown as SQSClient;
   const prisma = {
     storedFile: {
+      findFirst: async () => null,
       findMany: async ({ where }: { where: { ownerId: string } }) => storedFiles.filter((file) => file.ownerId === where.ownerId),
       create: async ({ data }: { data: Omit<(typeof storedFiles)[number], 'createdAt'> }) => {
         if (failDatabaseCreate) throw new Error('PostgreSQL unavailable');
@@ -155,6 +156,7 @@ test('file HTTP upload enforces size, owner isolation, and controlled S3/DB fail
       },
     },
   } as unknown as PrismaService;
+  prisma.$transaction = (async (callback: (tx: PrismaService) => Promise<unknown>) => callback(prisma)) as unknown as typeof prisma.$transaction;
   const clients: FileStorageClients = { s3, sqs };
   const filesService = new FilesService(prisma, clients);
   const moduleRef = await Test.createTestingModule({

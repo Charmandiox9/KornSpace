@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -15,8 +16,9 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { ApiAcceptedResponse, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPayloadTooLargeResponse, ApiProduces, ApiProperty, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse, ApiUnsupportedMediaTypeResponse } from '@nestjs/swagger';
+import { ApiAcceptedResponse, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPayloadTooLargeResponse, ApiProduces, ApiProperty, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse, ApiUnsupportedMediaTypeResponse } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { FileLibraryService } from './file-library.service';
 import { FilesService } from './files.service';
 import type { StoredFileResponse, UploadFileResult, UploadOperationResponse } from './file.types';
 import { ManagedUploadsService } from './managed-uploads.service';
@@ -73,7 +75,7 @@ const previewContentTypes = new Set([
 @UseGuards(SessionJwtGuard)
 @ApiTags('Files')
 export class FilesController {
-  constructor(private readonly filesService: FilesService, @Optional() private readonly uploads?: ManagedUploadsService) {}
+  constructor(private readonly filesService: FilesService, @Optional() private readonly uploads?: ManagedUploadsService, @Optional() private readonly library?: FileLibraryService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lista los archivos del usuario autenticado' })
@@ -91,7 +93,9 @@ export class FilesController {
     return this.filesService.listTrash(user.userId);
   }
 
+  @ApiForbiddenResponse({ description: 'Los lectores no pueden eliminar archivos.' })
   @Post(':id/trash')
+  @HttpCode(200)
   @ApiOperation({ summary: 'Mueve un archivo propio a la papelera durante 10 días' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ description: 'Archivo enviado a la papelera.' })
@@ -100,11 +104,13 @@ export class FilesController {
   }
 
   @Post(':id/restore')
+  @HttpCode(200)
+  @ApiConflictResponse({ description: 'El nombre ya existe. Confirmar con replaceFileId para mover la colisión a la papelera.' })
   @ApiOperation({ summary: 'Restaura un archivo propio de la papelera' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ description: 'Archivo restaurado.' })
-  async restoreFromTrash(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext): Promise<void> {
-    await this.filesService.restoreFromTrash(id, user.userId);
+  async restoreFromTrash(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext, @Query('replaceFileId', new ParseUUIDPipe({ optional: true })) replaceFileId?: string): Promise<void> {
+    await this.filesService.restoreFromTrash(id, user.userId, replaceFileId);
   }
 
   @Delete(':id/permanent')
@@ -121,6 +127,7 @@ export class FilesController {
   @ApiQuery({ name: 'folderId', required: false, format: 'uuid', description: 'Carpeta propia de destino; omitido para la raíz.' })
   @ApiHeader({ name: 'Content-Type', required: true, description: 'Tipo MIME válido del archivo.' })
   @ApiHeader({ name: 'Content-Length', required: true, description: 'Tamaño decimal positivo, igual a los bytes transmitidos.' })
+  @ApiHeader({ name: 'X-Replace-File-Id', required: false, description: 'UUID de la colisi�n confirmada. El archivo anterior pasa a la papelera s�lo despu�s de guardar el nuevo contenido.' })
   @ApiHeader({ name: 'X-Upload-Id', required: false, description: 'UUID único por intento. Permite consultar y cancelar la carga antes de la confirmación; no reutilizar en un reintento.' })
   @ApiCreatedResponse({ type: UploadResponseDto, description: 'Archivo pequeño guardado y disponible.' })
   @ApiAcceptedResponse({ type: UploadResponseDto, description: 'Archivo grande guardado y en procesamiento.' })
@@ -139,6 +146,7 @@ export class FilesController {
     @Res({ passthrough: true }) response: Response,
     @CurrentUser() user: AuthenticatedUserContext,
     @Headers('x-upload-id') operationId?: string,
+    @Headers('x-replace-file-id') replaceFileId?: string,
   ): Promise<UploadFileResult> {
     if (contentLength === undefined || !/^\d+$/u.test(contentLength)) {
       throw new BadRequestException('La solicitud debe incluir Content-Length decimal válido.');
@@ -156,6 +164,7 @@ export class FilesController {
     if (operationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(operationId)) {
       throw new BadRequestException('X-Upload-Id debe ser un UUID v4 válido.');
     }
+    if (replaceFileId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(replaceFileId)) throw new BadRequestException('X-Replace-File-Id no es v�lido.');
     const controller = new AbortController();
     const abort = () => controller.abort();
     const close = () => { if (!response.writableFinished) abort(); };
@@ -165,8 +174,8 @@ export class FilesController {
     try {
       if (operationId && !this.uploads) throw new ServiceUnavailableException('El servicio de cargas no está disponible.');
       const result = operationId && this.uploads
-        ? await this.uploads.upload(request, name, contentType, sizeBytes, user.userId, operationId, controller.signal, folderId ?? null)
-        : await this.filesService.upload(request, name, contentType, sizeBytes, user.userId, { signal: controller.signal, folderId: folderId ?? null });
+        ? await this.uploads.upload(request, name, contentType, sizeBytes, user.userId, operationId, controller.signal, folderId ?? null, replaceFileId)
+        : await this.filesService.upload(request, name, contentType, sizeBytes, user.userId, { signal: controller.signal, folderId: folderId ?? null, replaceFileId });
       response.status(result.asynchronous ? 202 : 201);
       return result;
     } finally {
@@ -208,6 +217,7 @@ export class FilesController {
   @ApiServiceUnavailableResponse({ description: 'El archivo no está disponible o el almacenamiento no pudo entregarlo.' })
   async download(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext, @Res() response: Response): Promise<void> {
     const { file, body } = await this.filesService.getDownload(id, user.userId);
+    void this.library?.recordAccess(id, user.userId).catch(() => undefined);
     response.setHeader('Content-Type', file.contentType);
     response.setHeader('Content-Length', file.sizeBytes);
     response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeContentDispositionFilename(file.name)}`);

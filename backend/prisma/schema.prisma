@@ -19,6 +19,8 @@ model User {
   updatedAt     DateTime     @updatedAt
   files         StoredFile[]
   folders       Folder[]
+  filePermissions FilePermission[]
+  fileVisits FileVisit[]
 }
 
 enum FileStatus {
@@ -37,6 +39,10 @@ model StoredFile {
   status      FileStatus @default(PROCESSING)
   createdAt   DateTime   @default(now())
   deletedAt   DateTime?
+  updatedAt DateTime @default(now()) @updatedAt
+  deletionPending Boolean @default(false)
+  permissions FilePermission[]
+  visits FileVisit[]
   ownerId     String?    @db.Uuid
   owner       User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   folderId    String?    @db.Uuid
@@ -45,6 +51,7 @@ model StoredFile {
   @@index([ownerId, createdAt])
   @@index([ownerId, deletedAt])
   @@index([folderId, ownerId])
+  @@index([deletionPending, deletedAt])
 }
 
 model Folder {
@@ -63,4 +70,29 @@ model Folder {
   @@unique([ownerId, parentId, name])
   @@index([ownerId, parentId])
   @@index([ownerId, createdAt])
+}
+
+enum FileRole {
+  READER
+  EDITOR
+}
+
+model FilePermission {
+  fileId String @db.Uuid
+  userId String @db.Uuid
+  role FileRole
+  file StoredFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([fileId, userId])
+  @@index([userId, fileId])
+}
+
+model FileVisit {
+  fileId String @db.Uuid
+  userId String @db.Uuid
+  openedAt DateTime @default(now())
+  file StoredFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([fileId, userId])
+  @@index([userId, openedAt])
 }

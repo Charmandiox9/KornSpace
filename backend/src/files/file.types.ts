@@ -32,6 +32,7 @@ export interface UploadOperationResponse {
 }
 
 export interface UploadLifecycle {
+  replaceFileId?: string;
   fileId?: string;
   folderId?: string | null;
   signal?: AbortSignal;

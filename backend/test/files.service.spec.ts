@@ -52,6 +52,7 @@ function createHarness(options: TestOptions = {}) {
         where.id === 'folder-1' && where.ownerId === options.folderOwnerId ? { id: 'folder-1' } : null,
     },
     storedFile: {
+      findFirst: async () => null,
       findMany: async ({ where }: { where: { ownerId: string } }) => {
         if (options.failDatabaseList) throw new Error('PostgreSQL unavailable');
         return data.filter((file) => file.ownerId === where.ownerId).map(asPrismaFile);
@@ -68,6 +69,7 @@ function createHarness(options: TestOptions = {}) {
       },
     },
   } as unknown as PrismaService;
+  prisma.$transaction = (async (callback: (tx: PrismaService) => Promise<unknown>) => callback(prisma)) as unknown as typeof prisma.$transaction;
   const clients: FileStorageClients = { s3, sqs };
   return { service: new FilesService(prisma, clients), commands, data };
 }

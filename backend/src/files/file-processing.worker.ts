@@ -1,10 +1,11 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { S3Client, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { DeleteMessageCommand, ReceiveMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { PrismaService } from '../prisma/prisma.service';
 import type { ProcessFileMessage } from './file.types';
 import { FileEventsGateway } from './file-events.gateway';
+import { FilesService } from './files.service';
 
 @Injectable()
 export class FileProcessingWorker implements OnModuleInit, OnModuleDestroy {
@@ -16,7 +17,7 @@ export class FileProcessingWorker implements OnModuleInit, OnModuleDestroy {
   private running = true;
   private trashSweep?: ReturnType<typeof setInterval>;
 
-  constructor(private readonly prisma: PrismaService, private readonly fileEvents: FileEventsGateway) {
+  constructor(private readonly prisma: PrismaService, private readonly fileEvents: FileEventsGateway, private readonly filesService: FilesService) {
     const configuration = {
       endpoint: process.env.S3_ENDPOINT ?? 'http://localhost:4566',
       region: process.env.AWS_REGION ?? 'us-east-1',
@@ -35,9 +36,9 @@ export class FileProcessingWorker implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     if (process.env.NODE_ENV !== 'test') {
-      this.trashSweep = setInterval(() => { void this.purgeExpiredTrash(); }, 60 * 60 * 1000);
+      this.trashSweep = setInterval(() => { void this.filesService.purgeExpiredTrash().catch(() => this.logger.warn('Trash cleanup will retry.')); }, 60 * 60 * 1000);
       this.trashSweep.unref();
-      void this.purgeExpiredTrash();
+      void this.filesService.purgeExpiredTrash().catch(() => this.logger.warn('Trash cleanup will retry.'));
     }
     if (process.env.NODE_ENV !== 'test') {
       void this.consume();
@@ -49,22 +50,6 @@ export class FileProcessingWorker implements OnModuleInit, OnModuleDestroy {
     this.running = false;
     this.s3.destroy();
     this.sqs.destroy();
-  }
-
-  private async purgeExpiredTrash(): Promise<void> {
-    const cutoff = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
-    try {
-      const expired = await this.prisma.storedFile.findMany({ where: { deletedAt: { lte: cutoff } }, take: 50 });
-      for (const file of expired) {
-        try {
-        await this.prisma.storedFile.updateMany({ where: { id: file.id, deletedAt: { not: null } }, data: { status: 'FAILED' } });
-        await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: file.s3Key }));
-        await this.prisma.storedFile.deleteMany({ where: { id: file.id, deletedAt: { not: null } } });
-        } catch (error: unknown) {
-          this.logger.warn(`Expired trash cleanup will retry for ${file.id}: ${this.errorMessage(error)}`);
-        }
-      }
-    } catch (error: unknown) { this.logger.warn(`Trash cleanup sweep failed: ${this.errorMessage(error)}`); }
   }
 
   private async consume(): Promise<void> {
