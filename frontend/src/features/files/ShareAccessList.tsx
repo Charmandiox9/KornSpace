@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSession } from '@/features/auth/SessionProvider';
 import { authenticatedFetch } from '@/lib/api-client';
 import type { ResourcePermission, ShareAccessListProps } from '@/types';
 
@@ -8,6 +9,7 @@ function isPermission(value: unknown): value is ResourcePermission {
   return typeof row.userId === 'string' && typeof row.email === 'string' && (row.username === null || typeof row.username === 'string') && (row.role === 'READER' || row.role === 'EDITOR') && typeof row.inherited === 'boolean' && typeof row.sourceId === 'string' && typeof row.sourceName === 'string';
 }
 export function ShareAccessList({ resourceId, kind, copy, refreshKey = 0, onChanged }: ShareAccessListProps) {
+  const { user } = useSession();
   const [rows, setRows] = useState<ResourcePermission[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -41,11 +43,14 @@ export function ShareAccessList({ resourceId, kind, copy, refreshKey = 0, onChan
   return <section aria-label={copy.sharedPeople} aria-busy={loading} className="my-4 grid max-h-64 gap-3 overflow-y-auto">
     <h3 className="text-sm font-semibold">{copy.sharedPeople}</h3>
     {loading ? <p role="status" className="text-xs text-muted">{copy.loadingFiles}</p> : rows.length === 0 && <p className="text-xs text-muted">{copy.noSharedPeople}</p>}
-    {rows.map((row) => <div key={`${row.sourceId}-${row.userId}`} className="grid gap-2 rounded-xl border border-line p-3 text-xs">
-      <p className="break-all">{row.username ? `@${row.username} · ` : ''}{row.email}</p>
-      <div className="flex flex-wrap items-center gap-2"><select aria-label={`${copy.accessRole}: ${row.email}`} value={row.role} disabled={busy || loading || row.inherited} onChange={(event) => void update(row, event.target.value)} className="min-h-10 rounded-lg border border-line bg-raised px-2"><option value="READER">{copy.shareReader}</option><option value="EDITOR">{copy.shareEditor}</option></select>
-      {!row.inherited && <button type="button" disabled={busy || loading} className="min-h-10 rounded-lg px-2 text-status" onClick={() => void update(row, null)}>{copy.revokeFolderEditor}</button>}</div>
-      {row.inherited && <p className="text-muted">{copy.inheritedAccess}: {row.sourceName}. <a href={`/files?folderId=${encodeURIComponent(row.sourceId)}`} className="text-accent underline">{copy.manageInheritedAccess}</a></p>}
+    {user && <div className="flex items-center gap-3 py-2 text-xs"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft font-semibold text-accent" aria-hidden="true">{(user.name ?? user.email).slice(0, 1).toUpperCase()}</span><div className="min-w-0 flex-1"><p className="truncate font-medium">{user.name ?? user.username ?? user.email}</p><p className="mt-1 break-all text-muted">{user.email}</p></div><span className="text-muted">{copy.shareOwner}</span></div>}
+    {rows.map((row) => <div key={`${row.sourceId}-${row.userId}`} className="flex items-start gap-3 py-2 text-xs">
+      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft font-semibold text-accent" aria-hidden="true">{(row.username ?? row.email).slice(0, 1).toUpperCase()}</span>
+      <div className="min-w-0 flex-1"><p className="break-all font-medium">{row.username ? `@${row.username}` : row.email}</p>{row.username && <p className="mt-1 break-all text-muted">{row.email}</p>}
+        {row.inherited && <p className="mt-2 text-muted">{copy.inheritedAccess}: {row.sourceName}. <a href={`/files?folderId=${encodeURIComponent(row.sourceId)}`} className="text-accent underline">{copy.manageInheritedAccess}</a></p>}
+      </div>
+      <div className="grid shrink-0 gap-1"><select aria-label={`${copy.accessRole}: ${row.email}`} value={row.role} disabled={busy || loading || row.inherited} onChange={(event) => void update(row, event.target.value)} className="min-h-9 max-w-28 rounded-lg border border-line bg-raised px-2"><option value="READER">{copy.shareReader}</option><option value="EDITOR">{copy.shareEditor}</option></select>
+      {!row.inherited && <button type="button" disabled={busy || loading} className="min-h-9 rounded-lg px-2 text-status hover:bg-raised" onClick={() => void update(row, null)}>{copy.revokeFolderEditor}</button>}</div>
     </div>)}
     {error && <p role="alert" className="text-xs text-status">{error} <button type="button" className="underline" onClick={() => setVersion((value) => value + 1)}>{copy.shareRetry}</button></p>}
   </section>;

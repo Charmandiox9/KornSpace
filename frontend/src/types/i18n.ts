@@ -1,4 +1,37 @@
 export interface TranslationCatalog {
+  systemReducedMotion: string;
+  reduceAnimations: string;
+  enableAnimations: string;
+  mascotDescription: string;
+  mascotCaption: string;
+  mascotSceneTitle: string;
+  mascotPause: string;
+  mascotResume: string;
+
+  folderDetails: string;
+  shareOwner: string;
+
+  colorNames: Record<'VIOLET' | 'BLUE' | 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' | 'PINK' | 'GRAY', string>;
+  done: string;
+  addPerson: string;
+  sortBy: string;
+  nameAsc: string;
+  nameDesc: string;
+  modifiedDesc: string;
+  modifiedAsc: string;
+  sizeDesc: string;
+  sizeAsc: string;
+  organize: string;
+  starItem: string;
+  unstarItem: string;
+  pinItem: string;
+  unpinItem: string;
+  itemColor: string;
+  defaultColor: string;
+  quickAccess: string;
+  starredItems: string;
+  organizationError: string;
+
   sharedPeople: string;
   noSharedPeople: string;
   accessRole: string;
@@ -54,6 +87,7 @@ export interface TranslationCatalog {
   openFile: string;
   fileDetails: string;
   fileActions: string;
+  folderActions: string;
   closePanel: string;
   fileType: string;
   fileCreated: string;

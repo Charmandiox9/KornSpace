@@ -18,6 +18,9 @@ import { isFolderContents, isStoredFolder } from '@/features/files/is-folder-con
 import { authenticatedFetch, apiUrl } from '@/lib/api-client';
 import { translations } from '@/i18n';
 import { usePreferences } from '@/hooks/use-preferences';
+import { useAppMotion } from '@/hooks/use-app-motion';
+import { useMotionPreferences } from '@/hooks/use-motion-preferences';
+import { useItemPreferences } from '@/hooks/use-item-preferences';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import { getSessionDestination } from '@/features/auth/session-destination';
 import { sileo } from 'sileo';
@@ -62,8 +65,12 @@ export default function KornSpaceApp() {
   const [isSavingUsername, setIsSavingUsername] = useState(false);
   const pathname = usePathname() ?? '/login';
   const router = useRouter();
+  const motionRoot = useRef<HTMLDivElement>(null);
+  const { enabled: motionEnabled } = useMotionPreferences();
+  useAppMotion(motionRoot, `${pathname}:${currentFolderId ?? 'root'}`, motionEnabled);
   const refreshVersion = useRef(0);
   const copy = translations[language];
+  const { preferences: itemPreferences, updatePreference: onOrganize } = useItemPreferences(user?.id, copy.organizationError, libraryVersion);
   const route = getSessionDestination(authStatus, Boolean(user?.username));
 
   const refreshFiles = useCallback(async (includeTrash = true, folderId: string | null = currentFolderId): Promise<void> => {
@@ -380,6 +387,7 @@ export default function KornSpaceApp() {
     : 'flex min-h-svh flex-col bg-linear-to-br from-page to-raised [&>main]:min-h-screen [&>main]:w-full [&>main]:flex-1';
 
   const filePageProps: FilesPageProps = {
+    itemPreferences, onOrganize,
     userId: user?.id,
     copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, isLoading: isLoadingFiles,
     initialTrash: pathname === '/trash', notice, apiUrl, onUpload: enqueue,
@@ -391,7 +399,7 @@ export default function KornSpaceApp() {
   };
 
   return (
-    <div className={appShellClass}>
+    <div ref={motionRoot} className={appShellClass}>
       {route === '/files' && user && (
         <a
           href="#main-content"
@@ -405,6 +413,7 @@ export default function KornSpaceApp() {
       <UploadNotifications queue={queue} copy={copy} onCancelUpload={cancelItem} onRetryUpload={retryItem} />
       {route === '/files' && user && (
         <Sidebar
+          onDriveRoot={() => navigateToFolder(null)}
           user={user}
           copy={copy}
           language={language}

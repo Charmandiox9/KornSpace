@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from 'react';
 import type { AuthenticatedUser } from './auth';
-import type { StoredFile, StoredFolder } from './files';
+import type { StoredFile, StoredFolder, ItemPreference, ItemOrganizationPatch } from './files';
 import type { TranslationCatalog } from './i18n';
 import type { Language, Theme } from './preferences';
 
@@ -13,6 +13,7 @@ export interface ActionButtonProps {
 }
 
 export interface SidebarProps {
+  onDriveRoot?: () => void;
   user: AuthenticatedUser;
   copy: TranslationCatalog;
   language: Language;
@@ -113,6 +114,9 @@ export interface FolderActionDialogProps {
 }
 
 export interface FilesPageProps {
+  itemPreferences?: ItemPreference[];
+  showQuickAccess?: boolean;
+  onOrganize?: (kind: 'files' | 'folders', id: string, patch: ItemOrganizationPatch) => Promise<void>;
   userId?: string;
   title?: string;
   toolbar?: ReactNode;
@@ -180,3 +184,15 @@ export interface ShareAccessListProps {
   refreshKey?: number;
   onChanged: () => Promise<void>;
 }
+
+export interface ItemOrganizeMenuProps {
+  preference?: ItemPreference;
+  copy: TranslationCatalog;
+  onUpdate: (patch: ItemOrganizationPatch) => Promise<void>;
+}
+export interface ActionIconProps { name: 'open' | 'rename' | 'share' | 'organize' | 'info' | 'delete' | 'download' | 'star' | 'shortcut'; }
+
+export interface MotionControlProps { copy: TranslationCatalog; }
+export interface MascotSceneProps { copy: TranslationCatalog; theme: Theme; }
+export interface MascotSceneHandle { setMotion: (enabled: boolean) => void; setTheme: (dark: boolean) => void; dispose: () => void; }
+export interface MascotSceneOptions { dark: boolean; motion: boolean; onUnavailable?: () => void; }

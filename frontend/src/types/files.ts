@@ -142,3 +142,21 @@ export interface ResourcePermission {
   sourceId: string;
   sourceName: string;
 }
+
+export type ItemColor = 'DEFAULT' | 'VIOLET' | 'BLUE' | 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' | 'PINK' | 'GRAY';
+export interface ItemOrganizationPatch { starred?: boolean; shortcut?: boolean; color?: ItemColor; }
+export interface ItemPreference {
+  id: string;
+  kind: 'files' | 'folders';
+  starred: boolean;
+  shortcut: boolean;
+  color: ItemColor;
+  file?: StoredFile;
+  folder?: StoredFolder;
+}
+export interface ItemPreferencesControls {
+  preferences: ItemPreference[];
+  updatePreference: (kind: 'files' | 'folders', id: string, patch: ItemOrganizationPatch) => Promise<void>;
+}
+export type SortOrder = 'nameAsc' | 'nameDesc' | 'modifiedDesc' | 'modifiedAsc' | 'sizeDesc' | 'sizeAsc';
+export interface SortableResource { name: string; createdAt: string; updatedAt?: string; sizeBytes?: number; }

@@ -1,3 +1,4 @@
+import { MotionControl } from './MotionControl';
 import type { AppearanceControlsProps } from '@/types';
 import { ActionButton, MoonIcon, SunIcon } from './ActionButton';
 
@@ -15,7 +16,8 @@ export function AppearanceControls({
     : copy.switchLanguageToSpanish;
 
   return (
-    <div className="flex gap-2 [&_button]:w-auto max-[760px]:[&_button]:w-12 max-[760px]:[&_button]:justify-center max-[760px]:[&_button]:px-0 max-[760px]:[&_button>span:last-child]:hidden" aria-label={copy.appearanceControls}>
+    <div className="flex flex-wrap gap-2 [&_button]:w-auto max-[760px]:[&_button]:w-12 max-[760px]:[&_button]:justify-center max-[760px]:[&_button]:px-0 max-[760px]:[&_button>span:last-child]:hidden" aria-label={copy.appearanceControls}>
+      <MotionControl copy={copy} />
       <ActionButton ariaLabel={languageActionLabel} onClick={onLanguageChange} title={languageActionLabel}>
         <span className="text-[11px] font-bold tracking-wider text-accent" aria-hidden="true">{nextLanguage.toUpperCase()}</span>
         <span>{nextLanguageName}</span>
