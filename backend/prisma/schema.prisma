@@ -19,6 +19,8 @@ model User {
   updatedAt     DateTime     @updatedAt
   files         StoredFile[]
   folders       Folder[]
+  folderPreferences FolderPreference[]
+  filePreferences FilePreference[]
   folderPermissions FolderPermission[]
   filePermissions FilePermission[]
   fileVisits FileVisit[]
@@ -42,6 +44,7 @@ model StoredFile {
   deletedAt   DateTime?
   updatedAt DateTime @default(now()) @updatedAt
   deletionPending Boolean @default(false)
+  preferences FilePreference[]
   permissions FilePermission[]
   visits FileVisit[]
   ownerId     String?    @db.Uuid
@@ -64,6 +67,7 @@ model Folder {
   owner     User         @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   parentId  String?      @db.Uuid
   parent    Folder?      @relation("FolderTree", fields: [parentId, ownerId], references: [id, ownerId], onDelete: Restrict)
+  preferences FolderPreference[]
   permissions FolderPermission[]
   children  Folder[]     @relation("FolderTree")
   files     StoredFile[]
@@ -107,4 +111,38 @@ model FolderPermission {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@id([folderId, userId])
   @@index([userId, folderId])
+}
+
+enum ItemColor {
+  DEFAULT
+  VIOLET
+  BLUE
+  GREEN
+  YELLOW
+  ORANGE
+  RED
+  PINK
+  GRAY
+}
+
+model FilePreference {
+  userId String @db.Uuid
+  fileId String @db.Uuid
+  starred Boolean @default(false)
+  shortcut Boolean @default(false)
+  color ItemColor @default(DEFAULT)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  file StoredFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  @@id([userId, fileId])
+}
+
+model FolderPreference {
+  userId String @db.Uuid
+  folderId String @db.Uuid
+  starred Boolean @default(false)
+  shortcut Boolean @default(false)
+  color ItemColor @default(DEFAULT)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folder Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  @@id([userId, folderId])
 }

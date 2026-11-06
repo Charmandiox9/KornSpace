@@ -8,6 +8,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { FilesModule } from './files/files.module';
 import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
+import { PreferencesModule } from './preferences/preferences.module';
 import { FoldersModule } from './folders/folders.module';
 
 interface GraphQLContextInput {
@@ -22,6 +23,7 @@ interface GraphQLContextInput {
     AuthModule,
     FilesModule,
     FoldersModule,
+    PreferencesModule,
     GraphQLModule.forRoot<ApolloDriverConfig>({
       driver: ApolloDriver,
       autoSchemaFile: true,

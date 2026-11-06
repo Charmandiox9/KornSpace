@@ -27,7 +27,9 @@ import { SessionJwtGuard } from '../auth/session-jwt.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUserContext } from '../auth/auth.types';
 
-class FileResponseDto implements StoredFileResponse {
+export class FileResponseDto implements StoredFileResponse {
+  @ApiProperty({ required: false, enum: ['OWNER', 'READER', 'EDITOR'] }) permission?: 'OWNER' | 'READER' | 'EDITOR';
+  @ApiProperty({ required: false, type: String, nullable: true, format: 'uuid' }) ownerId?: string | null;
   @ApiProperty({ format: 'uuid' })
   id!: string;
   @ApiProperty()

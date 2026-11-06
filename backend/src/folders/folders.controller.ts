@@ -36,7 +36,7 @@ export class CreateFolderDto {
   parentId?: string | null;
 }
 
-class FolderResponseDto implements FolderResponse {
+export class FolderResponseDto implements FolderResponse {
   @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() name!: string;
   @ApiProperty({ format: 'uuid' }) ownerId!: string;
