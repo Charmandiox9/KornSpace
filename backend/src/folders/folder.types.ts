@@ -1,4 +1,4 @@
-import type { StoredFileResponse } from './file.types';
+import type { StoredFileResponse } from '../files/file.types';
 
 export interface FolderResponse {
   id: string;

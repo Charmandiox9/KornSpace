@@ -8,7 +8,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { FilesModule } from './files/files.module';
 import { AuthModule } from './auth/auth.module';
 import { RedisModule } from './redis/redis.module';
-import { FoldersModule } from './files/folders.module';
+import { FoldersModule } from './folders/folders.module';
 
 interface GraphQLContextInput {
   req: Request;

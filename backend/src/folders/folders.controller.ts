@@ -5,7 +5,7 @@ import { ApiConflictResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOkResp
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUserContext } from '../auth/auth.types';
 import { SessionJwtGuard } from '../auth/session-jwt.guard';
-import type { StoredFileResponse } from './file.types';
+import type { StoredFileResponse } from '../files/file.types';
 import type { FolderContentsResponse, FolderResponse } from './folder.types';
 import { FoldersService } from './folders.service';
 

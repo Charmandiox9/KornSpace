@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { FoldersService } from '../src/files/folders.service';
+import { FoldersService } from '../src/folders/folders.service';
 import type { PrismaService } from '../src/prisma/prisma.service';
 
 interface FolderRecord {

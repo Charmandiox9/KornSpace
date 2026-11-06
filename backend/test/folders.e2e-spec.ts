@@ -3,10 +3,54 @@ import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { ValidationPipe, UnauthorizedException, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { FoldersController } from '../src/files/folders.controller';
-import { FoldersService } from '../src/files/folders.service';
-import type { PrismaService } from '../src/prisma/prisma.service';
+import { FoldersController } from '../src/folders/folders.controller';
+import { FoldersService } from '../src/folders/folders.service';
+import { AppModule } from '../src/app.module';
+import { PrismaService } from '../src/prisma/prisma.service';
+import { RedisService } from '../src/redis/redis.service';
 import { SessionJwtGuard } from '../src/auth/session-jwt.guard';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+
+test('application mounts folder routes and includes them in Swagger', async () => {
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    .overrideProvider(PrismaService)
+    .useValue({
+      folder: { findMany: async () => [], findFirst: async () => null },
+      storedFile: { findMany: async () => [] },
+    })
+    .overrideProvider(RedisService)
+    .useValue({})
+    .overrideGuard(SessionJwtGuard)
+    .useValue({
+      canActivate: (context: { switchToHttp: () => { getRequest: () => { authContext?: { userId: string } } } }) => {
+        context.switchToHttp().getRequest().authContext = { userId: 'owner-1' };
+        return true;
+      },
+    })
+    .compile();
+  const app = moduleRef.createNestApplication({ logger: false });
+  app.setGlobalPrefix('api');
+
+  try {
+    await app.init();
+    const document = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder().setTitle('Folders test API').setVersion('1.0').build(),
+    );
+    assert.deepEqual(Object.keys(document.paths['/api/folders'] ?? {}).sort(), ['get', 'post']);
+
+    const server = app.getHttpServer();
+    const addressValue = server.address();
+    if (!addressValue || typeof addressValue === 'string') {
+      await app.listen(0, '127.0.0.1');
+    }
+    const address = app.getHttpServer().address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/folders`);
+    assert.equal(response.status, 200);
+  } finally {
+    await app.close();
+  }
+});
 
 test('folder REST endpoints authenticate, validate input, navigate nested folders, and isolate owners', async () => {
   const folders: Array<{ id: string; name: string; ownerId: string; parentId: string | null; createdAt: Date; updatedAt: Date }> = [];

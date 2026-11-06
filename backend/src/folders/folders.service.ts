@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import type { Folder, StoredFile } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import type { StoredFileResponse } from './file.types';
+import type { StoredFileResponse } from '../files/file.types';
 import type { FolderContentsResponse, FolderResponse } from './folder.types';
 
 function isUniqueConstraintError(error: unknown): boolean {
