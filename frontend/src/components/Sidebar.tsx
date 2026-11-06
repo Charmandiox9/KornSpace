@@ -49,6 +49,7 @@ export function Sidebar(props: SidebarProps) {
 
   // Solo destinos con vista propia: cada href tiene su ruta en app/(workspace).
   const navItems: NavItem[] = [
+    { href: '/home', label: copy.home, icon: <HomeIcon /> },
     { href: '/files', label: copy.myDrive, icon: <HomeIcon /> },
     { href: '/shared', label: copy.sharedWithMe, icon: <UsersIcon /> },
     { href: '/trash', label: copy.trashHeading, icon: <TrashIcon /> },
@@ -56,7 +57,7 @@ export function Sidebar(props: SidebarProps) {
 
   return (
     <aside className="sticky top-0 flex min-h-svh self-start flex-col gap-[34px] border-r border-line/85 bg-surface/90 px-[18px] pt-7 pb-5 backdrop-blur-lg max-[760px]:items-center max-[760px]:gap-7 max-[760px]:px-2.5 max-[760px]:pt-5 max-[760px]:pb-4 max-[420px]:px-[7px]" aria-label={copy.sidebarLabel}>
-      <Link className={`inline-flex shrink-0 items-center gap-[11px] rounded-xl text-ink no-underline ${focusRing}`} href="/files" aria-label="KornSpace">
+      <Link className={`inline-flex shrink-0 items-center gap-[11px] rounded-xl text-ink no-underline ${focusRing}`} href="/home" aria-label="KornSpace">
         <span className="grid size-[38px] place-items-center rounded-[11px] text-lg font-bold text-white shadow-md shadow-accent/25 max-[760px]:size-[42px] max-[420px]:size-[38px] bg-linear-to-br from-accent to-secondary" aria-hidden="true">K</span>
         <span className="text-[15px] font-semibold tracking-tight max-[760px]:hidden">KornSpace</span>
       </Link>

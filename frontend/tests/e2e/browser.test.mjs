@@ -235,7 +235,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
       // Allow the shared session to settle before checking client navigation.
       await evaluate("new Promise(resolve => setTimeout(resolve, 100))");
       await evaluate("document.querySelector('section a[href=\"/\"]').click()");
-      await until(() => evaluate("location.pathname === '/files' && Boolean(document.querySelector('input[multiple]'))"), 'authenticated home');
+      await until(() => evaluate("location.pathname === '/home' && Boolean(document.querySelector('input[multiple]'))"), 'authenticated home');
       assert.equal(sessionChecks, 1);
       assert.equal(await evaluate("document.body.innerText.includes('Verificando tu sesión')"), false);
       await cdp.send('Page.reload');
@@ -360,6 +360,23 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await until(() => records.some(file => file.name === 'renamed.txt'), 'renamed metadata');
       await until(() => evaluate("!document.querySelector('dialog[open]')"), 'rename completion');
       await until(() => evaluate("Boolean(document.querySelector('article'))"), 'cards after rename');
+    });
+
+    await t.test('home shows personal recent files and combines type, owner, location and search filters', async () => {
+      await evaluate("document.querySelector('a[href=\"/home\"]').click()");
+      await until(() => evaluate("Boolean(document.querySelector('input[type=search]'))"), 'home filters');
+      await until(() => evaluate("!document.querySelector('[aria-busy=true]')"), 'library metadata');
+      assert.equal(await evaluate("document.querySelector('#workspace-title').textContent"), 'Tu espacio, al día');
+      assert.equal(await evaluate("document.querySelectorAll('article').length > 0"), true);
+      await evaluate("Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Todos los archivos').click()");
+      await evaluate("(() => { const input = document.querySelector('input[type=search]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'folder-drop'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+      await until(() => evaluate("document.querySelectorAll('article').length === 1"), 'search filter');
+      await evaluate("(() => { const select = document.querySelector('select[aria-label=Tipo]'); select.value = 'image'; select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+      await until(() => evaluate("document.querySelectorAll('article').length === 0"), 'type filter combines with search');
+      await evaluate("(() => { const select = document.querySelector('select[aria-label=Tipo]'); select.value = 'text'; select.dispatchEvent(new Event('change', { bubbles: true })); const owner = document.querySelector('select[aria-label=Propietario]'); owner.value = 'test-user'; owner.dispatchEvent(new Event('change', { bubbles: true })); const location = document.querySelector('select[aria-label=Ubicación]'); location.value = 'drop-target'; location.dispatchEvent(new Event('change', { bubbles: true })); })()");
+      await until(() => evaluate("document.querySelectorAll('article').length === 1"), 'owner and location filters');
+      await evaluate("document.querySelector('a[href=\"/files\"]').click()");
+      await until(() => evaluate("location.pathname === '/files' && !document.querySelector('[aria-busy=true]')"), 'return to drive');
     });
 
     await t.test('a duplicate upload can be cancelled or explicitly replaced', async () => {

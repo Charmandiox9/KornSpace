@@ -10,7 +10,7 @@ import { isAuthenticatedUser } from '@/features/auth/is-authenticated-user';
 import { useSession } from '@/features/auth/SessionProvider';
 import { UsernameSetupPage } from '@/features/auth/UsernameSetupPage';
 import { FilesPage } from '@/features/files/FilesPage';
-import { SharedPage } from '@/features/files/SharedPage';
+import { LibraryPage } from '@/features/files/LibraryPage';
 import { FileConflictDialog } from '@/features/files/FileConflictDialog';
 import { UploadNotifications } from '@/features/files/UploadNotifications';
 import { isStoredFile } from '@/features/files/is-stored-file';
@@ -23,7 +23,7 @@ import { getSessionDestination } from '@/features/auth/session-destination';
 import { sileo } from 'sileo';
 
 // Vistas del espacio de trabajo que comparten el shell con sidebar (todas viven bajo la ruta '/files' de sesión).
-const WORKSPACE_PATHS = ['/files', '/trash', '/shared'];
+const WORKSPACE_PATHS = ['/home', '/files', '/trash', '/shared'];
 
 function setMetaContent(attribute: 'name' | 'property', identifier: string, value: string): void {
   let element = document.head.querySelector<HTMLMetaElement>(`meta[${attribute}="${identifier}"]`);
@@ -47,6 +47,7 @@ function setCanonicalUrl(href: string): void {
 
 export default function KornSpaceApp() {
   const { language, theme, toggleLanguage, toggleTheme } = usePreferences();
+  const [libraryVersion, setLibraryVersion] = useState(0);
   const [isLoadingFiles, setIsLoadingFiles] = useState(true);
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [folders, setFolders] = useState<StoredFolder[]>([]);
@@ -54,7 +55,6 @@ export default function KornSpaceApp() {
   const [breadcrumbs, setBreadcrumbs] = useState<StoredFolder[]>([]);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [trash, setTrash] = useState<StoredFile[]>([]);
-  const sharedFiles: StoredFile[] = [];
   const { status: authStatus, user, updateUser, logout: endSession } = useSession();
   const [notice, setNotice] = useState('');
   const [restoreConflict, setRestoreConflict] = useState<RestoreConflict | null>(null);
@@ -85,6 +85,7 @@ export default function KornSpaceApp() {
         if (!Array.isArray(trashPayload) || !trashPayload.every(isStoredFile)) throw new Error(copy.loadError);
       }
       if (version === refreshVersion.current) {
+        setLibraryVersion((value) => value + 1);
         setFiles(filesPayload.files);
         setFolders(filesPayload.folders);
         setCurrentFolder(filesPayload.folder);
@@ -221,7 +222,7 @@ export default function KornSpaceApp() {
 
   useEffect(() => {
     if (!route || pathname === route || (route === '/files' && WORKSPACE_PATHS.includes(pathname))) return;
-    router.replace(route);
+    router.replace(route === '/files' ? '/home' : route);
   }, [pathname, route, router]);
 
   useEffect(() => {
@@ -434,8 +435,8 @@ export default function KornSpaceApp() {
             onUsernameChange={setUsername}
             onSubmit={(event) => void saveUsername(event)}
           />
-        ) : pathname === '/shared' ? (
-          <SharedPage copy={copy} files={sharedFiles} notice={notice} />
+        ) : pathname === '/home' || pathname === '/shared' ? (
+          <LibraryPage {...filePageProps} sharedOnly={pathname === '/shared'} refreshKey={libraryVersion} />
         ) : (
           <FilesPage {...filePageProps} />
         )}
