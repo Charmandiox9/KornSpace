@@ -8,6 +8,7 @@ export function AppearanceControls({
   theme,
   onLanguageChange,
   onThemeChange,
+  showMotionControl = true,
 }: AppearanceControlsProps) {
   const nextLanguage = language === 'es' ? 'en' : 'es';
   const nextLanguageName = nextLanguage === 'en' ? copy.languageEnglish : copy.languageSpanish;
@@ -17,7 +18,7 @@ export function AppearanceControls({
 
   return (
     <div className="flex flex-wrap gap-2 [&_button]:w-auto max-[760px]:[&_button]:w-12 max-[760px]:[&_button]:justify-center max-[760px]:[&_button]:px-0 max-[760px]:[&_button>span:last-child]:hidden" aria-label={copy.appearanceControls}>
-      <MotionControl copy={copy} />
+      {showMotionControl && <MotionControl copy={copy} />}
       <ActionButton ariaLabel={languageActionLabel} onClick={onLanguageChange} title={languageActionLabel}>
         <span className="text-[11px] font-bold tracking-wider text-accent" aria-hidden="true">{nextLanguage.toUpperCase()}</span>
         <span>{nextLanguageName}</span>

@@ -55,6 +55,7 @@ export interface SharedPageProps {
 }
 
 export interface PublicLayoutProps {
+  wide?: boolean;
   children: ReactNode;
   copy: TranslationCatalog;
   language: Language;
@@ -74,6 +75,7 @@ export interface AccountMenuProps {
 }
 
 export interface AppearanceControlsProps {
+  showMotionControl?: boolean;
   copy: TranslationCatalog;
   language: Language;
   theme: Theme;

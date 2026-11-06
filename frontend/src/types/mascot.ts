@@ -23,8 +23,16 @@ export interface MascotSurfaceTriangle {
 }
 
 export interface MascotTimeline {
-  phase: 'assembling' | 'performing' | 'dispersing';
+  phase: 'assembling' | 'performing' | 'opening' | 'entering' | 'secured' | 'returning' | 'dispersing';
   cycle: number;
   dispersion: number;
   action: number;
+  doorOpen: number;
+  travel: number;
+}
+
+export interface VaultSceneHandle {
+  update(open: number, secured: boolean): void;
+  setTheme(dark: boolean): void;
+  dispose(): void;
 }
