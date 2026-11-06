@@ -5,7 +5,10 @@ const storageKey = 'kornspace-motion';
 const query = '(prefers-reduced-motion: reduce)';
 function systemReduced() { return window.matchMedia(query).matches; }
 function enabled() {
-  try { return !systemReduced() && localStorage.getItem(storageKey) !== 'reduced'; }
+  try {
+    const preference = localStorage.getItem(storageKey);
+    return preference === 'full' || (!systemReduced() && preference !== 'reduced');
+  }
   catch { return !systemReduced(); }
 }
 function subscribe(listener: () => void) {
@@ -18,8 +21,7 @@ export function useMotionPreferences(): MotionPreferences {
   const reduced = useSyncExternalStore(subscribe, systemReduced, () => false);
   useEffect(() => { document.documentElement.dataset.motion = active ? 'full' : 'reduced'; }, [active]);
   return { enabled: active, systemReduced: reduced, toggle: () => {
-    if (systemReduced()) return;
-    try { localStorage.setItem(storageKey, enabled() ? 'reduced' : 'system'); } catch { return; }
+    try { localStorage.setItem(storageKey, enabled() ? 'reduced' : 'full'); } catch { return; }
     window.dispatchEvent(new Event(eventName));
   } };
 }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createMascotParticles } from './mascot-particles';
 import type { MascotSceneHandle, MascotSceneOptions } from '@/types';
 
 /** A lightweight, original workspace rooster. No external models, fonts or textures. */
@@ -72,6 +73,10 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
   const ambient = new THREE.HemisphereLight(0xe9edff, 0x535068, 2.3); scene.add(ambient);
   const key = new THREE.DirectionalLight(0xffefd9, 3); key.position.set(-3, 5, 5); scene.add(key);
   const fill = new THREE.DirectionalLight(0xa8b9ff, 2); fill.position.set(4, 2, -3); scene.add(fill);
+  const cloud = createMascotParticles([rooster, stack]); scene.add(cloud.mesh);
+  cloud.update(0, options.motion);
+  canvas.dataset.sceneStyle = 'geometric-particles';
+  canvas.dataset.scenePhase = options.motion ? 'assembling' : 'idle';
   let motion = options.motion, visible = true, disposed = false, lost = false, elapsed = 0, lastTime = 0;
   let targetX = 0, targetY = 0;
   const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
@@ -81,11 +86,13 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
     const delta = lastTime ? Math.min((time - lastTime) / 1000, 0.05) : 0;
     lastTime = time; elapsed += delta;
     rooster.position.y = Math.sin(elapsed * 1.2) * 0.028;
-    head.rotation.y += (targetX * 0.18 - head.rotation.y) * 0.07;
+    head.rotation.y += (Math.sin(elapsed * 0.7) * 0.12 + targetX * 0.18 - head.rotation.y) * 0.07;
     head.rotation.x += (targetY * 0.10 + Math.sin(elapsed * 0.65) * 0.018 - head.rotation.x) * 0.07;
     heldFolder.rotation.z = -0.09 + Math.sin(elapsed * 0.85) * 0.025;
     const blink = elapsed % 5;
     eyes.scale.y = blink > 4.78 ? Math.max(0.08, Math.min(1, Math.abs(blink - 4.89) / 0.11)) : 1;
+    cloud.update(elapsed, true);
+    canvas.dataset.scenePhase = elapsed < 1.8 ? 'assembling' : 'idle';
     render();
   }
   function synchronize() {
@@ -108,6 +115,7 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
     dispose() {
       disposed = true; renderer.setAnimationLoop(null); resize.disconnect(); intersection.disconnect();
       host.removeEventListener('pointermove', pointerMove); host.removeEventListener('pointerleave', pointerLeave); canvas.removeEventListener('webglcontextlost', contextLost); document.removeEventListener('visibilitychange', synchronize);
+      cloud.dispose();
       geometries.forEach((item) => item.dispose()); materials.forEach((item) => item.dispose()); renderer.dispose(); renderer.forceContextLoss(); canvas.remove();
     },
   };

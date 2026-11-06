@@ -20,7 +20,7 @@ export function LoginPage({
       onLanguageChange={onLanguageChange}
       onThemeChange={onThemeChange}
     >
-      <div className="grid w-full max-w-[1040px] grid-cols-[1fr_1fr] items-center gap-8 max-[760px]:grid-cols-1 max-[760px]:gap-5">
+      <div className="grid w-full max-w-[1040px] grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] items-center gap-10 self-center max-[760px]:grid-cols-1 max-[760px]:gap-5">
       <LoginMascotScene copy={copy} theme={theme} />
       <section data-motion-enter className="relative flex w-full max-w-[620px] self-center flex-col items-center overflow-hidden rounded-[20px] border border-line bg-surface px-[clamp(22px,7vw,64px)] py-[clamp(34px,7vw,68px)] text-center shadow-panel justify-self-center before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-linear-to-r before:from-accent before:to-secondary" aria-labelledby="login-title">
         <span className="mb-5 h-1 w-10 rounded-full bg-linear-to-r from-accent to-secondary" aria-hidden="true" />

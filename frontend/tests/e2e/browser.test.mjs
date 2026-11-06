@@ -739,13 +739,20 @@ test('session navigation and multiple uploads in a real browser with a simulated
         await writeFile(process.env.MASCOT_SCREENSHOT_PATH.replace(/\.png$/u, '-initial.png'), Buffer.from(initial.data, 'base64'));
       }
       assert.equal(await evaluate('document.querySelector("[data-login-mascot] [role=img]").getAttribute("aria-label")'), 'El gallo de KornSpace organizando carpetas');
+      assert.equal(await evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneStyle'), 'geometric-particles');
+      assert.equal(await evaluate('document.querySelector("[data-login-mascot]").getBoundingClientRect().right < document.querySelector("#login-title").closest("section").getBoundingClientRect().left'), true);
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'scene animation').catch(async (error) => { throw new Error(error.message + JSON.stringify(await evaluate(`({ motion: document.documentElement.dataset.motion, hidden: document.hidden, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches, bounds: document.querySelector('[data-login-mascot]').getBoundingClientRect().toJSON(), fallback: Boolean(document.querySelector('[data-mascot-fallback]')) })`))); });
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "idle"'), 'automatic geometric assembly without pointer interaction');
       await evaluate(`document.querySelector('button[aria-label="Pausar movimiento"]').click()`);
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "paused"'), 'scene pause');
       await evaluate(`document.querySelector('button[aria-label="Reanudar movimiento"]').click()`);
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'scene resume');
       await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "paused" && document.documentElement.dataset.motion === "reduced"'), 'system reduced motion');
+      await evaluate(`document.querySelector('button[aria-label="Activar animaciones"]').click()`);
+      await until(() => evaluate('localStorage.getItem("kornspace-motion") === "full" && document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'explicit playback despite system preference');
+      await evaluate(`localStorage.removeItem('kornspace-motion'); window.dispatchEvent(new Event('kornspace-motion-change'))`);
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "paused"'), 'restore system motion preference');
       await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
       await until(() => evaluate(`Boolean(document.querySelector('button[aria-label="Reducir animaciones"]'))`), 'motion control after system preference');
       await evaluate(`document.querySelector('button[aria-label="Reducir animaciones"]').click()`);
