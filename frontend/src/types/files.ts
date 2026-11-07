@@ -1,4 +1,11 @@
 export interface StoredFile {
+  updatedAt?: string;
+  ownerId?: string | null;
+  ownerName?: string;
+  folderId?: string | null;
+  folderName?: string | null;
+  permission?: 'OWNER' | 'READER' | 'EDITOR';
+  openedAt?: string | null;
   id: string;
   name: string;
   contentType: string;
@@ -7,6 +14,47 @@ export interface StoredFile {
   checksum: string | null;
   createdAt: string;
   deletedAt?: string | null;
+}
+
+export interface ShareRecipient {
+  userId: string;
+  username: string | null;
+  email: string;
+  name: string | null;
+}
+
+export interface ResolvedShareRecipient {
+  identifier: string;
+  recipient: ShareRecipient;
+}
+
+export interface StoredFolder {
+  permission?: 'OWNER' | 'READER' | 'EDITOR';
+  id: string;
+  name: string;
+  ownerId: string;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FileDropOptions {
+  folders: StoredFolder[];
+  currentFolderId: string | null;
+  enabled: boolean;
+  onUpload: (files: File[], folderId: string | null) => void;
+}
+
+export interface FileDropState {
+  isDragging: boolean;
+  targetFolderId: string | null;
+}
+
+export interface FolderContents {
+  folder: StoredFolder | null;
+  breadcrumbs: StoredFolder[];
+  folders: StoredFolder[];
+  files: StoredFile[];
 }
 
 export interface FileStatusEvent {
@@ -43,6 +91,7 @@ export interface UploadItem {
 export interface UploadJob {
   id: string;
   file: File;
+  folderId: string | null;
   operationId: string;
   epoch: number;
   controller: AbortController;
@@ -51,7 +100,7 @@ export interface UploadJob {
 }
 
 export interface UploadQueueOptions {
-  upload: (file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string) => Promise<UploadResult>;
+  upload: (file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string, folderId: string | null) => Promise<UploadResult | 'cancelled'>;
   cancelUpload: (operationId: string) => Promise<CancellationResult>;
   onUploaded: () => Promise<void>;
   concurrency?: number;
@@ -61,15 +110,53 @@ export interface UploadQueue {
   getSnapshot: () => UploadItem[];
   getServerSnapshot: () => UploadItem[];
   subscribe: (listener: () => void) => () => void;
-  enqueue: (files: File[]) => void;
+  enqueue: (files: File[], folderId?: string | null) => void;
   cancel: () => void;
   cancelItem: (id: string) => void;
   retryItem: (id: string) => void;
 }
 
 export interface UploadQueueControls {
+  conflict: UploadConflict | null;
+  resolveConflict: (replace: boolean) => void;
   queue: UploadQueue;
-  enqueue: (files: File[]) => void;
+  enqueue: (files: File[], folderId?: string | null) => void;
   cancelItem: (id: string) => void;
   retryItem: (id: string) => void;
 }
+
+export interface UploadConflict {
+  operationId: string;
+  name: string;
+  conflictId: string;
+}
+
+export interface RestoreConflict { path: string; name: string; conflictId: string; }
+
+export interface ResourcePermission {
+  userId: string;
+  email: string;
+  username: string | null;
+  role: 'READER' | 'EDITOR';
+  inherited: boolean;
+  sourceId: string;
+  sourceName: string;
+}
+
+export type ItemColor = 'DEFAULT' | 'VIOLET' | 'BLUE' | 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' | 'PINK' | 'GRAY';
+export interface ItemOrganizationPatch { starred?: boolean; shortcut?: boolean; color?: ItemColor; }
+export interface ItemPreference {
+  id: string;
+  kind: 'files' | 'folders';
+  starred: boolean;
+  shortcut: boolean;
+  color: ItemColor;
+  file?: StoredFile;
+  folder?: StoredFolder;
+}
+export interface ItemPreferencesControls {
+  preferences: ItemPreference[];
+  updatePreference: (kind: 'files' | 'folders', id: string, patch: ItemOrganizationPatch) => Promise<void>;
+}
+export type SortOrder = 'nameAsc' | 'nameDesc' | 'modifiedDesc' | 'modifiedAsc' | 'sizeDesc' | 'sizeAsc';
+export interface SortableResource { name: string; createdAt: string; updatedAt?: string; sizeBytes?: number; }

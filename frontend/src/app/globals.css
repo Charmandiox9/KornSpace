@@ -30,6 +30,10 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --motion-fast: 160ms;
+  --motion-panel: 240ms;
   --page: #f5f6fb;
   --surface: #ffffff;
   --surface-raised: #f8f9fd;
@@ -60,3 +64,13 @@
   --shadow: 0 20px 54px rgb(0 0 0 / 28%);
 }
 
+
+/* Honor the in-app motion preference as well as the operating system. */
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}

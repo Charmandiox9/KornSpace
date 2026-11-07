@@ -11,7 +11,7 @@ import { createServer } from 'node:http';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function until(check, label, timeout = 15000) {
+async function until(check, label, timeout = 30000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     try { if (await check()) return; } catch { /* Navigation can replace the execution context. */ }
@@ -65,7 +65,7 @@ async function connectDebugger(url) {
   };
 }
 
-test('session navigation and multiple uploads in a real browser with a simulated API', { timeout: 120000 }, async (t) => {
+test('session navigation and multiple uploads in a real browser with a simulated API', { timeout: 300000 }, async (t) => {
   const executable = process.env.BROWSER_EXECUTABLE ?? [
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -89,7 +89,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
   try {
     await until(async () => (await fetch(`${origin}/login`)).ok, 'Next server readiness').catch((error) => { throw new Error(`${error.message}\n${appOutput}`); });
     browser = spawn(executable, [
-      '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
+      '--headless=new', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
       '--disable-extensions', '--remote-debugging-port=0', `--user-data-dir=${temporaryDirectory}`, 'about:blank',
     ], { windowsHide: true, stdio: 'ignore' });
     let debugPort;
@@ -102,7 +102,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
     const cdp = debuggerClient;
     const evaluate = async (expression) => {
       const result = await cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-      if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+      if (result.exceptionDetails) { const message = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text; process.stderr.write(message + '\n'); throw new Error(message); }
       return result.result.value;
     };
     const evaluateFunction = async (functionDeclaration, ...args) => {
@@ -114,12 +114,24 @@ test('session navigation and multiple uploads in a real browser with a simulated
         returnByValue: true,
         awaitPromise: true,
       });
-      if (response.exceptionDetails) throw new Error(response.exceptionDetails.text);
+      if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text);
       return response.result.value;
     };
     const user = { id: 'test-user', email: 'test@example.test', name: 'Test', username: 'test', pictureUrl: null };
     const records = [];
+    let nextFileId = 0;
+    const uploadDestinations = [];
+    const dropFolder = { id: 'drop-target', name: 'Drop destination', ownerId: user.id, parentId: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
+    const emptyFolder = { ...dropFolder, id: 'empty-folder', name: 'Empty folder' };
+    let emptyFolderExists = true;
+    let folderDeleteAttempts = 0;
     const uploads = [];
+    const itemPreferences = new Map();
+    const permissionWrites = [];
+    const directFileGrants = new Map();
+    const directFolderGrants = new Map();
+    const peer = { userId: '44444444-4444-4444-8444-444444444444', username: 'recipient', email: 'peer@example.test', name: 'Recipient' };
+    const trashedRecords = [];
     const operations = new Map();
     const interceptionErrors = [];
     let sessionChecks = 0;
@@ -137,7 +149,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
       request.resume();
       request.on('end', () => {
         if (operations.get(operationId)?.phase === 'cancelled') return;
-        const file = { id: String(records.length + 1), name, contentType: 'text/plain', sizeBytes: Number(request.headers['content-length']), status: 'AVAILABLE', checksum: null, createdAt: '2026-01-01T00:00:00.000Z' };
+        const file = { id: String(++nextFileId), name, ownerId: user.id, ownerName: 'Test', folderId: null, folderName: null, permission: 'OWNER', updatedAt: '2026-01-01T00:00:00.000Z', openedAt: null, contentType: 'text/plain', sizeBytes: Number(request.headers['content-length']), status: 'AVAILABLE', checksum: null, createdAt: '2026-01-01T00:00:00.000Z' };
         operations.set(operationId, { phase: 'confirming', file: null, asynchronous: false });
         setTimeout(() => {
           records.push(file);
@@ -153,9 +165,71 @@ test('session navigation and multiple uploads in a real browser with a simulated
         const url = new URL(event.request.url);
         let status = 200;
         let body = {};
-        if (url.pathname === '/api/auth/me') { sessionChecks += 1; body = user; }
+        let rawBody;
+        if (url.pathname === '/api/auth/me') { sessionChecks += 1; body = user; if (expired) status = 401; }
         else if (url.pathname === '/api/auth/refresh') { refreshes += 1; status = 401; }
         else if (expired) status = 401;
+        else if (url.pathname === '/api/preferences/items') {
+          body = Array.from(itemPreferences.values()).map((preference) => ({ ...preference, ...(preference.kind === 'files' ? { file: records.find((file) => file.id === preference.id) } : { folder: preference.id === dropFolder.id ? dropFolder : emptyFolderExists && preference.id === emptyFolder.id ? emptyFolder : undefined }) })).filter((row) => row.file || row.folder);
+        }
+        else if (url.pathname.startsWith('/api/preferences/items/') && event.request.method === 'PUT') {
+          const [, , , , kind, id] = url.pathname.split('/'); const key = kind + ':' + id;
+          itemPreferences.set(key, { starred: false, shortcut: false, color: 'DEFAULT', id, kind, ...itemPreferences.get(key), ...JSON.parse(event.request.postData) }); status = 204;
+        }
+        else if (url.pathname === '/graphql') {
+          const query = JSON.parse(event.request.postData).query;
+          const own = [...records, ...trashedRecords.map(file => ({ ...file, deletedAt: file.deletedAt ?? '2026-01-02T00:00:00.000Z' }))].filter(file => file.ownerId === user.id);
+          body = query.includes('storageUsage') ? { data: { storageUsage: { totalBytes: own.reduce((sum, file) => sum + file.sizeBytes, 0), trashBytes: own.filter(file => file.deletedAt).reduce((sum, file) => sum + file.sizeBytes, 0), files: own } } } : { data: { all: records, recent: records.filter(file => file.openedAt) } };
+        }
+        else if (event.request.method === 'GET' && url.pathname.endsWith('/recipients')) {
+          const identifier = (url.searchParams.get('identifier') ?? '').toLowerCase();
+          if (['recipient', '@recipient', peer.email].includes(identifier)) body = peer;
+          else { status = 404; body = { message: 'Recipient not found' }; }
+        }
+        else if (/^\/api\/(files|folders)\/[^/]+\/permissions(?:\/[^/]+)?$/.test(url.pathname)) {
+          const [, , kind, id, , target] = url.pathname.split('/');
+          const store = kind === 'files' ? directFileGrants : directFolderGrants;
+          const grants = store.get(id) ?? new Map();
+          store.set(id, grants);
+          const source = kind === 'files' ? records.find((file) => file.id === id) : dropFolder;
+          if (event.request.method === 'GET') {
+            body = Array.from(grants, ([userId, role]) => ({ ...peer, userId, role, inherited: false, sourceId: id, sourceName: source?.name ?? id }));
+            if (kind === 'files' && source?.folderId === dropFolder.id) body.push(...Array.from(directFolderGrants.get(dropFolder.id) ?? [], ([userId, role]) => ({ ...peer, userId, role, inherited: true, sourceId: dropFolder.id, sourceName: dropFolder.name })));
+          } else if (event.request.method === 'PATCH') { const data = JSON.parse(event.request.postData); grants.set(target, data.role); body = {}; status = 204; }
+          else if (event.request.method === 'DELETE') { grants.delete(target); body = {}; status = 204; }
+          else {
+            const requestBody = JSON.parse(event.request.postData ?? '{}');
+            if (kind === 'files') permissionWrites.push(requestBody);
+            grants.set(peer.userId, requestBody.role); body = { userId: peer.userId, role: requestBody.role };
+          }
+        }
+        else if (url.pathname === '/api/files/name-conflict') {
+          const requestBody = JSON.parse(event.request.postData ?? '{}');
+          const existing = records.find(file => file.name === requestBody.name && (file.folderId ?? null) === (requestBody.folderId ?? null));
+          body = existing ? { code: 'FILE_NAME_CONFLICT', conflictId: existing.id, name: existing.name } : { available: true };
+          status = existing ? 409 : 200;
+        }
+        else if (event.request.method === 'POST' && url.pathname.endsWith('/access')) {
+          const id = url.pathname.split('/').at(-2); const file = records.find(file => file.id === id); if (file) file.openedAt = new Date().toISOString(); body = {};
+        }
+        else if (url.pathname === '/api/folders/empty-folder' && event.request.method === 'PATCH') {
+          emptyFolder.name = JSON.parse(event.request.postData).name; body = emptyFolder;
+        }
+        else if (url.pathname === '/api/folders/empty-folder' && event.request.method === 'DELETE') {
+          folderDeleteAttempts += 1;
+          if (folderDeleteAttempts === 1) { status = 503; body = { message: 'Retry' }; }
+          else { emptyFolderExists = false; status = 204; body = null; }
+        }
+        else if (event.request.method === 'PATCH') {
+          const id = url.pathname.split('/').at(-1); const requestBody = JSON.parse(event.request.postData ?? '{}'); const file = records.find(file => file.id === id);
+          const collision = records.find(other => other.id !== id && other.name === requestBody.name && other.folderId === file?.folderId);
+          if (collision && requestBody.replaceFileId !== collision.id) { status = 409; body = { conflictId: collision.id, name: collision.name }; }
+          else if (file) { if (collision) { records.splice(records.indexOf(collision), 1); trashedRecords.push(collision); } file.name = requestBody.name; file.updatedAt = new Date().toISOString(); body = file; }
+          else status = 404;
+        }
+        else if (url.pathname === '/api/files/trash' && event.request.method === 'GET') { body = trashedRecords; }
+        else if (url.pathname === '/api/folders') { listChecks += 1; const folderId = url.searchParams.get('parentId'); body = { folder: folderId ? dropFolder : null, breadcrumbs: [], folders: folderId ? [] : [dropFolder, ...(emptyFolderExists ? [emptyFolder] : [])], files: records.filter(record => (record.folderId ?? null) === folderId) }; }
+        else if (event.request.method === 'GET' && /^\/api\/files\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith('/trash')) { rawBody = '<script>window.previewExecuted = true</script> KornSpace text preview'; }
         else if (url.pathname.startsWith('/api/files/uploads/')) {
           const id = url.pathname.split('/').at(-1);
           const current = operations.get(id);
@@ -167,7 +241,11 @@ test('session navigation and multiple uploads in a real browser with a simulated
         else if (event.request.method === 'POST') {
           const name = url.searchParams.get('name');
           const operationId = Object.entries(event.request.headers).find(([key]) => key.toLowerCase() === 'x-upload-id')?.[1];
+          const replacementId = Object.entries(event.request.headers).find(([key]) => key.toLowerCase() === 'x-replace-file-id')?.[1];
+          const target = records.find(file => file.id === replacementId);
+          if (target) { records.splice(records.indexOf(target), 1); trashedRecords.push(target); }
           uploads.push(name);
+          uploadDestinations.push({ name, folderId: url.searchParams.get('folderId') });
           if (['progress.txt', 'cancel-me.txt'].includes(name) || name.startsWith('toast-')) {
             operations.set(operationId, { phase: 'uploading', file: null, asynchronous: false });
             await cdp.send('Fetch.continueRequest', { requestId: event.requestId, url: `${uploadOrigin}${url.pathname}${url.search}` });
@@ -178,7 +256,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
             operations.set(operationId, { phase: 'failed', file: null, asynchronous: false });
           }
           else {
-            const file = { id: String(records.length + 1), name, contentType: 'text/plain', sizeBytes: 7, status: 'AVAILABLE', checksum: null, createdAt: '2026-01-01T00:00:00.000Z' };
+            const file = { id: String(++nextFileId), name, ownerId: user.id, ownerName: 'Test', folderId: url.searchParams.get('folderId'), folderName: null, permission: 'OWNER', updatedAt: '2026-01-01T00:00:00.000Z', openedAt: null, contentType: 'text/plain', sizeBytes: 7, status: 'AVAILABLE', checksum: null, createdAt: '2026-01-01T00:00:00.000Z' };
             records.push(file);
             status = 201;
             body = { file, asynchronous: false };
@@ -188,16 +266,20 @@ test('session navigation and multiple uploads in a real browser with a simulated
         await cdp.send('Fetch.fulfillRequest', {
           requestId: event.requestId, responseCode: status,
           responseHeaders: [{ name: 'Content-Type', value: 'application/json' }],
-          body: Buffer.from(JSON.stringify(body)).toString('base64'),
+          body: Buffer.from(rawBody ?? JSON.stringify(body)).toString('base64'),
         });
-      })().catch((error) => interceptionErrors.push(error));
+      })().catch((error) => {
+        // Chrome invalidates interceptions when the application aborts a request on navigation.
+        if (error instanceof Error && error.message === 'Invalid InterceptionId.') return;
+        interceptionErrors.push(error);
+      });
     });
     await cdp.send('Page.enable', { enableFileChooserOpenedEvent: true });
     await cdp.send('Runtime.enable');
     await cdp.send('Network.enable');
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: "localStorage.setItem('kornspace-language', 'es'); localStorage.setItem('kornspace-theme', 'dark');" });
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
-    await cdp.send('Fetch.enable', { patterns: [{ urlPattern: `${origin}/api/*` }] });
+    await cdp.send('Fetch.enable', { patterns: [{ urlPattern: `${origin}/api/*` }, { urlPattern: `${origin}/graphql` }] });
 
     await t.test('keeps one session check across 404, home, login redirect and files; reload checks again', async () => {
       await cdp.send('Page.navigate', { url: `${origin}/unknown-page` });
@@ -206,12 +288,15 @@ test('session navigation and multiple uploads in a real browser with a simulated
       // Allow the shared session to settle before checking client navigation.
       await evaluate("new Promise(resolve => setTimeout(resolve, 100))");
       await evaluate("document.querySelector('section a[href=\"/\"]').click()");
-      await until(() => evaluate("location.pathname === '/files' && Boolean(document.querySelector('input[multiple]'))"), 'authenticated workspace');
+      await until(() => evaluate("location.pathname === '/home' && Boolean(document.querySelector('input[multiple]'))"), 'authenticated home');
       assert.equal(sessionChecks, 1);
       assert.equal(await evaluate("document.body.innerText.includes('Verificando tu sesión')"), false);
       await cdp.send('Page.reload');
       await until(() => sessionChecks === 2, 'session check after reload');
       await until(() => evaluate("Boolean(document.querySelector('input[multiple]'))"), 'workspace after reload');
+      assert.equal(await evaluate(`Boolean(document.querySelector('a[href="/files"] [data-drive-icon]'))`), true);
+      await evaluate("document.querySelector('a[href=\"/files\"]').click()");
+      await until(() => evaluate("location.pathname === '/files'"), 'drive navigation');
     });
 
     const selectFiles = async (filenames) => {
@@ -238,6 +323,24 @@ test('session navigation and multiple uploads in a real browser with a simulated
       assert.equal(await evaluate("document.querySelector('button[aria-describedby=\"upload-hint\"]').disabled"), false);
     });
 
+    await t.test('uses the sidebar action menu, selects file details and safely opens text with viewer actions', async () => {
+      await until(() => evaluate("Boolean(document.querySelector('article > button[aria-pressed]'))"), 'file cards ready');
+      assert.equal(await evaluate("Boolean(document.querySelector('#workspace-create-actions summary'))"), true);
+      assert.equal(await evaluate("document.querySelector('main > section').getBoundingClientRect().width > 950"), true);
+      await evaluate("document.querySelector('article > button[aria-pressed]').click()");
+      await until(() => evaluate("Boolean(document.querySelector('aside[aria-label=\"Detalles del archivo\"]'))"), 'file information sidebar');
+      assert.equal(await evaluate(`Array.from(document.querySelectorAll('aside[aria-label="Detalles del archivo"] button, aside[aria-label="Detalles del archivo"] a')).filter(button => button.querySelector('svg')).every(button => { const icon = button.querySelector('svg').getBoundingClientRect(); const rect = button.getBoundingClientRect(); return Math.abs(icon.top + icon.height / 2 - rect.top - rect.height / 2) < 2; })`), true);
+
+      await evaluate("Array.from(document.querySelectorAll('aside[aria-label=\"Detalles del archivo\"] button')).find(button => button.textContent === 'Abrir').click()");
+      await until(() => evaluate("Boolean(document.querySelector('dialog[open] pre'))"), 'text reader');
+      assert.equal(await evaluate("document.querySelector('dialog pre').textContent.includes('<script>')"), true);
+      assert.equal(await evaluate("window.previewExecuted === true"), false);
+      assert.equal(await evaluate("Boolean(document.querySelector('dialog a[href^=\"/api/files/\"]'))"), true);
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await until(() => evaluate("!document.querySelector('dialog[open]')"), 'viewer closes with Escape');
+      await evaluate("document.querySelector('aside[aria-label=\"Detalles del archivo\"] button[aria-label=\"Cerrar\"]').click()");
+    });
+
     await t.test('highlights drag-and-drop and processes each dropped file independently', async () => {
       await evaluate(`(() => {
         const transfer = new DataTransfer();
@@ -246,12 +349,327 @@ test('session navigation and multiple uploads in a real browser with a simulated
         window.testTransfer = transfer;
         document.querySelector('[role=region]').dispatchEvent(new DragEvent('dragenter', { dataTransfer: transfer, bubbles: true, cancelable: true }));
       })()`);
-      await until(() => evaluate("document.querySelector('[role=region]').classList.contains('border-accent')"), 'drag highlight');
+      await until(() => evaluate("Boolean(document.querySelector('[data-file-drop-overlay]'))"), 'drag highlight');
       await evaluate("document.querySelector('[role=region]').dispatchEvent(new DragEvent('drop', { dataTransfer: window.testTransfer, bubbles: true, cancelable: true }))");
       await until(() => records.length === 3, 'dropped upload');
       await until(() => evaluate("document.querySelector('[aria-labelledby=\"files-heading\"]').innerText.includes('dropped.txt')"), 'dropped list update');
       assert.equal(uploads.includes('dropped-empty.txt'), false);
-      assert.equal(await evaluate("document.querySelector('[role=region]').classList.contains('border-accent')"), false);
+      assert.equal(await evaluate("Boolean(document.querySelector('[data-file-drop-overlay]'))"), false);
+    });
+
+    await t.test('accepts files across the page and targets a hovered folder without duplicate uploads', async () => {
+      await evaluate(`(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['root'], 'global-drop.txt', { type: 'text/plain' }));
+        const sidebar = document.querySelector('aside[aria-label="Barra lateral"]');
+        sidebar.dispatchEvent(new DragEvent('dragenter', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      })()`);
+      await until(() => evaluate('Boolean(document.querySelector("[data-file-drop-overlay]"))'), 'global drop indicator');
+      await evaluate(`(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['root'], 'global-drop.txt', { type: 'text/plain' }));
+        document.body.dispatchEvent(new DragEvent('dragleave', { dataTransfer: transfer, bubbles: true, relatedTarget: null }));
+      })()`);
+      await until(() => evaluate('!document.querySelector("[data-file-drop-overlay]")'), 'leaving the window clears the indicator');
+      assert.equal(await evaluate(`(() => {
+        const transfer = new DataTransfer();
+        transfer.setData('text/plain', 'ordinary text');
+        const event = new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true });
+        document.body.dispatchEvent(event);
+        return event.defaultPrevented;
+      })()`), false);
+      await evaluate(`(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['root'], 'global-drop.txt', { type: 'text/plain' }));
+        document.querySelector('aside[aria-label="Barra lateral"]').dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      })()`);
+      await until(() => records.some(record => record.name === 'global-drop.txt'), 'sidebar drop upload');
+      assert.deepEqual(uploadDestinations.filter(item => item.name === 'global-drop.txt'), [{ name: 'global-drop.txt', folderId: null }]);
+      await until(() => evaluate('Boolean(document.querySelector("[data-upload-folder-id]"))'), 'folder card after refresh');
+      await evaluate(`(() => {
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['nested'], 'folder-drop.txt', { type: 'text/plain' }));
+        const icon = document.querySelector('[data-upload-folder-id] svg path');
+        window.folderDropTransfer = transfer;
+        icon.dispatchEvent(new DragEvent('dragover', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      })()`);
+      await until(() => evaluate('document.querySelector("[data-upload-folder-id]").parentElement.classList.contains("ring-2")'), 'folder target highlight');
+      assert.equal(await evaluate('document.querySelector("[data-file-drop-overlay]").textContent.includes("Drop destination")'), true);
+      await evaluate(`document.querySelector('[data-upload-folder-id] svg path').dispatchEvent(new DragEvent('drop', { dataTransfer: window.folderDropTransfer, bubbles: true, cancelable: true }))`);
+      await until(() => records.some(record => record.name === 'folder-drop.txt'), 'folder drop upload');
+      assert.deepEqual(uploadDestinations.filter(item => item.name === 'folder-drop.txt'), [{ name: 'folder-drop.txt', folderId: dropFolder.id }]);
+      await until(() => evaluate('!document.querySelector("[data-file-drop-overlay]")'), 'drop indicator cleared');
+      await until(() => evaluate('Boolean(document.querySelector("[data-upload-folder-id]"))'), 'folder card available');
+      await evaluate('document.querySelector("[data-upload-folder-id]").click()');
+      await until(() => evaluate('document.querySelector("#workspace-title").textContent === "Drop destination"'), 'navigate to drop destination');
+      await until(() => evaluate('document.querySelector("[aria-labelledby=files-heading]").textContent.includes("folder-drop.txt")'), 'file stored in target folder');
+      await evaluate('document.querySelector("nav[aria-label=Ubicación] button").click()');
+      await until(() => evaluate('document.querySelector("#workspace-title").textContent === "Mi Unidad"'), 'return to root');
+    });
+
+    const openFolderMenu = async (name) => {
+      await until(() => evaluateFunction(`function(name) { return Boolean(Array.from(document.querySelectorAll('summary')).find((item) => item.getAttribute('aria-label') === 'Acciones de la carpeta: ' + name)); }`, name), 'folder menu trigger');
+      await evaluateFunction(`function(name) { const trigger = Array.from(document.querySelectorAll('summary')).find((item) => item.getAttribute('aria-label') === 'Acciones de la carpeta: ' + name); if (!trigger.parentElement.open) trigger.click(); }`, name);
+    };
+    await t.test('folder actions stay collapsed, open by keyboard and close with Escape without navigating', async () => {
+      await until(() => evaluate(`Boolean(document.querySelector('summary[aria-label="Acciones de la carpeta: Empty folder"]'))`), 'folder menu');
+      assert.equal(await evaluate(`document.querySelector('summary[aria-label="Acciones de la carpeta: Empty folder"]').parentElement.open`), false);
+      const locationBefore = await evaluate('location.href');
+      await evaluate(`document.querySelector('summary[aria-label="Acciones de la carpeta: Empty folder"]').focus()`);
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', text: '\r', windowsVirtualKeyCode: 13 });
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+      await until(() => evaluate(`document.querySelector('summary[aria-label="Acciones de la carpeta: Empty folder"]').parentElement.open`), 'folder menu opens after keyboard event');
+      assert.equal(await evaluate(`document.querySelector('summary[aria-label="Acciones de la carpeta: Empty folder"]').parentElement.open`), true);
+      assert.equal(await evaluate('location.href'), locationBefore);
+      if (process.env.FOLDER_MENU_SCREENSHOT_PATH) {
+        const desktop = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.FOLDER_MENU_SCREENSHOT_PATH, Buffer.from(desktop.data, 'base64'));
+      }
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 780, deviceScaleFactor: 1, mobile: true });
+      await until(() => evaluate(`(() => { const rect = document.querySelector('summary[aria-label="Acciones de la carpeta: Empty folder"]').nextElementSibling.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth; })()`), 'folder menu repositions after mobile resize');
+      const bounds = await evaluate(`(() => { const menu = document.querySelector('summary[aria-label="Acciones de la carpeta: Empty folder"]').nextElementSibling.getBoundingClientRect(); return { left: menu.left, right: menu.right, width: innerWidth }; })()`);
+      assert.ok(bounds.left >= 0 && bounds.right <= bounds.width, JSON.stringify(bounds));
+      if (process.env.FOLDER_MENU_SCREENSHOT_PATH) {
+        const mobile = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.FOLDER_MENU_SCREENSHOT_PATH.replace(/\.png$/u, '-mobile.png'), Buffer.from(mobile.data, 'base64'));
+      }
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+      await evaluate(`document.querySelector('summary[aria-label="Acciones de la carpeta: Empty folder"]').focus()`);
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await until(() => evaluate(`!document.querySelector('summary[aria-label="Acciones de la carpeta: Empty folder"]').parentElement.open`), 'folder menu closes after Escape');
+      assert.equal(await evaluate(`document.querySelector('summary[aria-label="Acciones de la carpeta: Empty folder"]').parentElement.open`), false);
+    });
+
+    await t.test('folder dialogs rename, cancel deletion and retain errors for retry', async () => {
+      const openDelete = async () => { await openFolderMenu('Renamed folder'); await evaluate(`document.querySelector('[aria-label="Eliminar carpeta vacía: Renamed folder"]').click()`); };
+      await until(() => evaluate(`Boolean(document.querySelector('[aria-label="Renombrar carpeta: Empty folder"]'))`), 'folder actions');
+      await openFolderMenu('Empty folder');
+      await evaluate(`document.querySelector('[aria-label="Renombrar carpeta: Empty folder"]').click()`);
+      await until(() => evaluate('Boolean(document.querySelector("dialog[open] input"))'), 'folder rename dialog');
+      assert.equal(await evaluate('document.activeElement === document.querySelector("dialog input")'), true);
+      await evaluate(`(() => { const input = document.querySelector('dialog input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Renamed folder'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await evaluate('document.querySelector("dialog form").requestSubmit()');
+      await until(() => evaluate('!document.querySelector("dialog[open]")'), 'folder renamed');
+      await until(() => evaluate(`Boolean(document.querySelector('[aria-label="Eliminar carpeta vacía: Renamed folder"]'))`), 'renamed folder action');
+      await openDelete();
+      await until(() => evaluate('Boolean(document.querySelector("dialog[open]"))'), 'folder confirmation');
+      assert.equal(await evaluate('document.activeElement.textContent'), 'Cancelar');
+      await evaluate('document.querySelector("dialog button[type=button]").click()');
+      assert.equal(folderDeleteAttempts, 0);
+      await openDelete();
+      await evaluate('document.querySelector("dialog form").requestSubmit()');
+      await until(() => evaluate('Boolean(document.querySelector("dialog [role=alert]"))'), 'folder deletion error');
+      assert.equal(emptyFolderExists, true);
+      await evaluate('document.querySelector("dialog form").requestSubmit()');
+      await until(() => evaluate('!document.querySelector("dialog[open]")'), 'folder deletion retry');
+      assert.equal(emptyFolderExists, false);
+    });
+
+    await t.test('renames a file through an accessible dialog', async () => {
+      await until(() => evaluate("Boolean(document.querySelector('article'))"), 'cards before rename');
+      await evaluate("Array.from(document.querySelector('article').querySelectorAll('button')).find(button => button.textContent === 'Renombrar').click()");
+      await until(() => evaluate("Boolean(document.querySelector('dialog[open] input'))"), 'rename dialog');
+      await evaluate("(() => { const input = document.querySelector('dialog input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'renamed.txt'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+      await evaluate("document.querySelector('dialog form').requestSubmit()");
+      await until(() => records.some(file => file.name === 'renamed.txt'), 'renamed metadata');
+      await until(() => evaluate("!document.querySelector('dialog[open]')"), 'rename completion');
+      await until(() => evaluate("Boolean(document.querySelector('article'))"), 'cards after rename');
+    });
+
+    await t.test('sharing confirms username and associated email, blocks unknown users and supports email grants', async () => {
+      const openShare = async () => {
+        await until(() => evaluate("Boolean(document.querySelector('article'))"), 'file cards before sharing');
+        await evaluate("Array.from(document.querySelector('article').querySelectorAll('button')).find(button => button.textContent === 'Compartir').click()");
+        await until(() => evaluate("Boolean(document.querySelector('dialog[open] input'))"), 'share dialog');
+      };
+      const setRecipient = async (value) => evaluateFunction(`function (value) {
+        const input = document.querySelector('dialog input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true }));
+      }`, value);
+      await openShare();
+      assert.equal(await evaluate("document.querySelector('dialog button[type=submit]').disabled"), true);
+      await setRecipient('@recipient');
+      await until(() => evaluate("document.querySelector('#share-recipient-status').textContent.includes('peer@example.test')"), 'email associated with username');
+      assert.equal(await evaluate("document.querySelector('#share-recipient-status').textContent.includes('@recipient')"), true);
+      await setRecipient('unknown-user');
+      assert.equal(await evaluate("document.querySelector('dialog button[type=submit]').disabled"), true);
+      await until(() => evaluate("document.querySelector('#share-recipient-status').textContent.includes('No se encontró')"), 'unknown recipient');
+      assert.equal(permissionWrites.length, 0);
+      await setRecipient('recipient');
+      await until(() => evaluate("!document.querySelector('dialog button[type=submit]').disabled"), 'verified username');
+      await evaluate("document.querySelector('dialog form').requestSubmit()");
+      await until(() => permissionWrites.length === 1, 'reader permission write');
+      assert.deepEqual(permissionWrites[0], { identifier: 'recipient', recipientId: peer.userId, role: 'READER' });
+      await until(() => evaluate("document.querySelector('dialog input').value === '' && !document.querySelector('dialog button[type=button]').disabled"), 'share saved');
+      await evaluate("Array.from(document.querySelectorAll('dialog button')).find(button => button.textContent === 'Hecho').click()");
+      await until(() => evaluate("!document.querySelector('dialog[open]')"), 'share completion');
+      await openShare();
+      await until(() => evaluate(`Boolean(document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]'))`), 'existing file recipient');
+      assert.equal(await evaluate(`document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]').value`), 'READER');
+      await evaluate(`(() => { const permission = document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]'); permission.value = 'EDITOR'; permission.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await until(() => Array.from(directFileGrants.values()).some((grants) => grants.get(peer.userId) === 'EDITOR'), 'changed existing file permission');
+      await setRecipient(peer.email);
+      await until(() => evaluate("!document.querySelector('dialog button[type=submit]').disabled"), 'verified email');
+      await evaluate("const role = document.querySelector('dialog select[aria-label=Compartir]'); role.value = 'EDITOR'; role.dispatchEvent(new Event('change', { bubbles: true }))");
+      await evaluate("document.querySelector('dialog form').requestSubmit()");
+      await until(() => permissionWrites.length === 2, 'editor permission write');
+      assert.deepEqual(permissionWrites[1], { identifier: peer.email, recipientId: peer.userId, role: 'EDITOR' });
+      await until(() => evaluate("document.querySelector('dialog input').value === ''"), 'email share saved');
+      await evaluate("Array.from(document.querySelectorAll('dialog button')).find(button => button.textContent === 'Hecho').click()");
+      await until(() => evaluate("!document.querySelector('dialog[open]')"), 'email share completion');
+    });
+
+    await t.test('folder sharing lists reader/editor grants and files display inherited access', async () => {
+      await openFolderMenu('Drop destination');
+      await evaluate(`document.querySelector('[aria-label="Compartir carpeta: Drop destination"]').click()`);
+      await until(() => evaluate('Boolean(document.querySelector("dialog[open] input"))'), 'folder share dialog');
+      await evaluate(`(() => { const input = document.querySelector('dialog input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'recipient'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await evaluate('document.querySelector("dialog form").requestSubmit()');
+      await until(() => directFolderGrants.get(dropFolder.id)?.get(peer.userId) === 'READER', 'folder reader permission');
+      await until(() => evaluate(`Boolean(document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]'))`), 'existing folder recipient');
+      await evaluate(`(() => { const permission = document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]'); permission.value = 'EDITOR'; permission.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await until(() => directFolderGrants.get(dropFolder.id)?.get(peer.userId) === 'EDITOR', 'edited folder permission');
+      await until(() => evaluate(`!document.querySelector('dialog button[type=button]').disabled`), 'folder sharing settled');
+      assert.equal(await evaluate(`document.querySelector('dialog input').getBoundingClientRect().top < document.querySelector('dialog section').getBoundingClientRect().top`), true);
+      if (process.env.ORGANIZATION_SCREENSHOT_PATH) {
+        const desktop = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.ORGANIZATION_SCREENSHOT_PATH, Buffer.from(desktop.data, 'base64'));
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 780, deviceScaleFactor: 1, mobile: true });
+        const bounds = await evaluate(`(() => { const rect = document.querySelector('dialog').getBoundingClientRect(); return { left: rect.left, right: rect.right, width: innerWidth }; })()`);
+        assert.ok(bounds.left >= 0 && bounds.right <= bounds.width);
+        const mobile = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.ORGANIZATION_SCREENSHOT_PATH.replace(/\.png$/u, '-mobile.png'), Buffer.from(mobile.data, 'base64'));
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+      }
+      await evaluate(`Array.from(document.querySelectorAll('dialog button')).find((button) => button.textContent === 'Hecho').click()`);
+      await evaluate(`document.querySelector('[data-upload-folder-id="drop-target"]').click()`);
+      await until(() => evaluate(`document.querySelector('#workspace-title').textContent === 'Drop destination' && Boolean(document.querySelector('article'))`), 'shared folder content');
+      await evaluate(`(() => { const card = Array.from(document.querySelectorAll('article')).find((card) => card.textContent.includes('folder-drop.txt')); Array.from(card.querySelectorAll('button')).find((button) => button.textContent === 'Compartir').click() })()`);
+      await until(() => evaluate(`Boolean(document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]'))`), 'inherited file recipient');
+      assert.equal(await evaluate(`document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]').disabled`), true);
+      assert.equal(await evaluate(`document.querySelector('dialog select[aria-label="Permiso: peer@example.test"]').value`), 'EDITOR');
+      assert.equal(await evaluate(`document.querySelector('dialog').textContent.includes('Heredado de: Drop destination')`), true);
+      await evaluate(`Array.from(document.querySelectorAll('dialog button')).find((button) => button.textContent === 'Hecho').click()`);
+    });
+
+    await t.test('personal organization saves stars, shortcuts and colors, survives reload and sorts by name', async () => {
+      await evaluate(`document.querySelector('a[href="/files"]').click()`);
+      await until(() => evaluate(`Boolean(document.querySelector('summary[aria-label="Acciones de la carpeta: Drop destination"]'))`), 'organization root');
+      await openFolderMenu('Drop destination');
+      await evaluate(`(() => { const menu = document.querySelector('summary[aria-label="Acciones de la carpeta: Drop destination"]').parentElement; Array.from(menu.querySelectorAll('summary')).find((item) => item.textContent.includes('Organizar')).click(); })()`);
+      await evaluate(`Array.from(document.querySelectorAll('details[open] button')).find((button) => button.textContent === 'Añadir a destacados').click()`);
+      await until(() => itemPreferences.get('folders:' + dropFolder.id)?.starred, 'star saved');
+      await until(() => evaluate(`!Array.from(document.querySelectorAll('details[open] button')).find((button) => button.textContent === 'Añadir acceso rápido').disabled`), 'organization ready');
+      await evaluate(`Array.from(document.querySelectorAll('details[open] button')).find((button) => button.textContent === 'Añadir acceso rápido').click()`);
+      await until(() => itemPreferences.get('folders:' + dropFolder.id)?.shortcut, 'shortcut saved');
+      await until(() => evaluate(`!document.querySelector('button[aria-label="Color: Azul"]').disabled`), 'color ready');
+      await evaluate(`document.querySelector('button[aria-label="Color: Azul"]').click()`);
+      await until(() => itemPreferences.get('folders:' + dropFolder.id)?.color === 'BLUE', 'color saved');
+      await evaluate(`document.querySelector('a[href="/home"]').click()`);
+      await until(() => evaluate(`Boolean(document.querySelector('section[aria-label="Accesos rápidos"]'))`), 'home organization sections');
+      await cdp.send('Page.reload');
+      await until(() => evaluate(`document.querySelector('section[aria-label="Accesos rápidos"]')?.textContent.includes('Drop destination')`), 'shortcut after reload');
+      await evaluate(`document.querySelector('a[href="/files"]').click()`);
+      await until(() => evaluate(`Boolean(document.querySelector('select')) && Boolean(document.querySelector('[aria-labelledby=folders-heading]'))`), 'sorting controls');
+      await evaluate(`(() => { const select = Array.from(document.querySelectorAll('select')).find((item) => item.closest('label')?.textContent.includes('Ordenar por')); select.value = 'nameDesc'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      const names = await evaluate(`Array.from(document.querySelectorAll('[aria-labelledby=files-heading] article > div:first-child > span[title]')).map((item) => item.title)`);
+      assert.deepEqual(names, [...names].sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' })));
+    });
+
+    await t.test('home shows personal recent files and combines type, owner, location and search filters', async () => {
+      await until(() => evaluate(`Boolean(document.querySelector('[data-upload-folder-id="drop-target"]'))`), 'drive root folder ready before opening a recent file');
+      await evaluate(`document.querySelector('[data-upload-folder-id="drop-target"]').click()`);
+      await until(() => evaluate(`Boolean(document.querySelector('button[aria-label="Detalles del archivo: folder-drop.txt"]'))`), 'folder file to open');
+      await evaluate(`document.querySelector('button[aria-label="Detalles del archivo: folder-drop.txt"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
+      await until(() => Boolean(records.find(file => file.name === 'folder-drop.txt')?.openedAt), 'file visit recorded');
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await until(() => evaluate('!document.querySelector("dialog[open]")'), 'recent file viewer closed');
+      await evaluate("document.querySelector('a[href=\"/home\"]').click()");
+      await until(() => evaluate("Boolean(document.querySelector('input[type=search]'))"), 'home filters');
+      await until(() => evaluate("!document.querySelector('[aria-busy=true]')"), 'library metadata');
+      await until(() => evaluate("document.querySelector('#workspace-title')?.textContent === 'Tu espacio, al día' && !document.querySelector('[aria-busy=true]') && document.querySelectorAll('article').length > 0"), 'recent home items rendered after navigation');
+      assert.equal(await evaluate("document.querySelector('#workspace-title').textContent"), 'Tu espacio, al día');
+      assert.equal(await evaluate("Array.from(document.querySelectorAll('button')).some(button => button.textContent === 'Todos los archivos')"), false);
+      await evaluate("(() => { const input = document.querySelector('input[type=search]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'folder-drop'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+      await until(() => evaluate("document.querySelectorAll('article').length > 0 && Array.from(document.querySelectorAll('article')).every(card => card.textContent.includes('folder-drop'))"), 'search filter');
+      await evaluate("(() => { const select = document.querySelector('select[aria-label=Tipo]'); select.value = 'image'; select.dispatchEvent(new Event('change', { bubbles: true })); })()");
+      await until(() => evaluate("document.querySelectorAll('article').length === 0"), 'type filter combines with search');
+      await evaluate("(() => { const select = document.querySelector('select[aria-label=Tipo]'); select.value = 'text'; select.dispatchEvent(new Event('change', { bubbles: true })); const owner = document.querySelector('select[aria-label=Propietario]'); owner.value = 'test-user'; owner.dispatchEvent(new Event('change', { bubbles: true })); const location = document.querySelector('select[aria-label=Ubicación]'); location.value = 'drop-target'; location.dispatchEvent(new Event('change', { bubbles: true })); })()");
+      await until(() => evaluate("document.querySelectorAll('article').length > 0"), 'owner and location filters');
+      await evaluate("document.querySelector('a[href=\"/files\"]').click()");
+      await until(() => evaluate("location.pathname === '/files' && !document.querySelector('[aria-busy=true]')"), 'return to drive');
+    });
+
+    await t.test('adaptive menus select without opening and dismiss outside; starred and storage routes work', async () => {
+      await until(() => evaluate('Boolean(document.querySelector("article summary"))'), 'drive action trigger');
+      async function capture(suffix) {
+        if (!process.env.WORKSPACE_SCREENSHOT_PATH) return;
+        const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.WORKSPACE_SCREENSHOT_PATH.replace(/\.png$/u, '-' + suffix + '.png'), Buffer.from(shot.data, 'base64'));
+      }
+      const before = await evaluate('location.href');
+      await evaluate(`(() => { const trigger = document.querySelector('article summary'); trigger.style.cssText = 'position:fixed;bottom:20px;right:30px;z-index:60'; trigger.click(); })()`);
+      await until(() => evaluate('document.querySelector("[data-action-menu][open] [popover]")?.dataset.direction === "up"'), 'menu opens upward');
+      assert.equal(await evaluate('document.querySelectorAll("article[data-selected=true]").length'), 1);
+      assert.equal(await evaluate(`Boolean(document.querySelector('aside[aria-label="Detalles del archivo"]'))`), false);
+      assert.equal(await evaluate('location.href'), before);
+      await capture('menu');
+      const menuBounds = await evaluate(`(() => { const rect = document.querySelector('[data-action-menu][open] [popover]').getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right }; })()`);
+      assert.ok(menuBounds.top >= 0 && menuBounds.bottom <= 900 && menuBounds.left >= 0 && menuBounds.right <= 1280);
+      await evaluate(`document.querySelector('#workspace-title').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
+      await until(() => evaluate('!document.querySelector("[data-action-menu][open]") && !document.querySelector("article[data-selected=true]")'), 'outside closes and deselects');
+      await evaluate(`(() => { const trigger = document.querySelector('article summary'); trigger.style.cssText = 'position:fixed;top:16px;right:30px;z-index:60'; trigger.click(); })()`);
+      await until(() => evaluate('document.querySelector("[data-action-menu][open] [popover]")?.dataset.direction === "down"'), 'menu opens downward');
+      await evaluate(`document.querySelector('#workspace-title').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); document.querySelector('article summary').style.cssText = ''`);
+      await until(() => evaluate('!document.querySelector("[data-action-menu][open]")'), 'closed before organizing');
+      const starredFileId = await evaluate('document.querySelector("article").closest("li[data-entry]").dataset.entry');
+      await evaluate(`document.querySelector('article summary').click()`);
+      await evaluate(`Array.from(document.querySelectorAll('[data-action-menu][open] summary')).find(item => item.textContent.includes('Organizar')).click()`);
+      await evaluate(`(() => { const buttons = Array.from(document.querySelectorAll('[data-action-menu][open] button')); const star = buttons.find(item => item.textContent.includes('destacados')); if (!star) throw new Error('Missing star action: ' + JSON.stringify(buttons.map(item => item.textContent))); if (star.getAttribute('aria-pressed') !== 'true') star.click(); })()`);
+      await until(() => itemPreferences.get('files:' + starredFileId)?.starred, 'file star saved');
+      await evaluate(`document.querySelector('a[href="/starred"]').click()`);
+      await until(() => evaluate(`document.querySelector('#workspace-title')?.textContent === 'Destacados' && Boolean(document.querySelector('summary[aria-label="Acciones de la carpeta: Drop destination"]'))`), 'starred folder on its own route');
+      await until(() => evaluate('document.querySelectorAll("article").length === 1'), 'starred file as well as folder');
+      await capture('starred');
+      await evaluate(`document.querySelector('a[href="/home"]').click()`);
+      await until(() => evaluate('Boolean(document.querySelector("[aria-labelledby=folders-heading] details"))'), 'collapsible home folders');
+      await evaluate('document.querySelector("[aria-labelledby=folders-heading] details > summary").click()');
+      assert.equal(await evaluate('document.querySelector("[aria-labelledby=folders-heading] details").open'), false);
+      await evaluate('document.querySelector("[aria-labelledby=folders-heading] details > summary").click()');
+      assert.equal(await evaluate('Boolean(document.querySelector("[aria-labelledby=videos-heading] details"))'), true);
+      await capture('home');
+      const trashFixture = { ...records[0], id: 'storage-trash', name: 'trash-large.txt', sizeBytes: 12345, deletedAt: new Date().toISOString() };
+      trashedRecords.push(trashFixture);
+      await evaluate(`document.querySelector('a[href="/storage"]').click()`);
+      await until(() => evaluate('Boolean(document.querySelector("[data-storage-total]")) && !document.querySelector("[aria-busy=true]") && document.querySelectorAll("article").length > 0'), 'storage rows');
+      assert.equal(await evaluate('document.querySelector("select").value'), 'sizeDesc');
+      await capture('storage');
+      assert.equal(await evaluate('document.querySelector("article").textContent.includes("trash-large.txt")'), true);
+      await evaluate(`(() => { const select = document.querySelector('select'); select.value = 'sizeAsc'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await until(() => evaluate('!document.querySelector("article").textContent.includes("trash-large.txt")'), 'storage sort ascending');
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+      await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+      assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+      await capture('storage-mobile');
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+      trashedRecords.splice(trashedRecords.indexOf(trashFixture), 1);
+      await evaluate(`document.querySelector('a[href="/files"]').click()`);
+      await until(() => evaluate('document.querySelector("#workspace-title")?.textContent === "Mi Unidad" && !document.querySelector("[aria-busy=true]")'), 'return from storage');
+    });
+
+    await t.test('a duplicate upload can be cancelled or explicitly replaced', async () => {
+      const filename = path.join(temporaryDirectory, 'renamed.txt'); await writeFile(filename, 'replacement');
+      const before = uploads.filter(name => name === 'renamed.txt').length;
+      await selectFiles([filename]);
+      await until(() => evaluate("Boolean(document.querySelector('dialog[open] #conflict-title'))"), 'upload conflict dialog');
+      await evaluate("Array.from(document.querySelector('dialog').querySelectorAll('button')).find(button => button.textContent === 'Cancelar').click()");
+      await until(() => evaluate("!document.querySelector('dialog[open]')"), 'cancelled replacement');
+      assert.equal(uploads.filter(name => name === 'renamed.txt').length, before);
+      await selectFiles([filename]);
+      await until(() => evaluate("Boolean(document.querySelector('dialog[open] #conflict-title'))"), 'replacement confirmation');
+      await evaluate("Array.from(document.querySelector('dialog').querySelectorAll('button')).find(button => button.textContent === 'Reemplazar').click()");
+      await until(() => uploads.filter(name => name === 'renamed.txt').length === before + 1, 'replacement upload');
+      await until(() => records.filter(file => file.name === 'renamed.txt').length === 1, 'unique replacement name');
+      assert.equal(trashedRecords.some(file => file.name === 'renamed.txt'), true);
     });
 
     const uploadSnapshot = (name) => evaluateFunction(`function (name) {
@@ -312,13 +730,13 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await until(async () => (await uploadSnapshot('cancel-me.txt')).text.includes('Carga cancelada'), 'confirmed cancellation');
       await until(() => records.some((record) => record.name === 'keep-me.txt'), 'unaffected upload');
       assert.equal(records.some((record) => record.name === 'cancel-me.txt'), false);
-      assert.equal((await uploadSnapshot('cancel-me.txt')).actionText, 'Reintentar carga');
+      await until(async () => (await uploadSnapshot('cancel-me.txt')).actionText === 'Reintentar carga', 'retry control visible after cancellation');
       await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
     });
 
     await t.test('groups simultaneous and newly added uploads in one resizing toast with independent results', async () => {
       await evaluate("document.querySelectorAll('[data-upload-toaster] button[aria-labelledby*=dismiss]').forEach(button => button.click())");
-      await until(() => evaluate("document.querySelectorAll('[data-sileo-toast]:not([data-exiting=true])').length === 0"), 'previous notification dismissal');
+      await until(() => evaluate("document.querySelectorAll('[data-sileo-toast]').length === 0"), 'previous notifications fully removed');
       await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 512 * 1024 });
       const names = ['toast-first.txt', 'toast-second.txt', 'toast-third.txt'];
       const paths = names.map((name) => path.join(temporaryDirectory, name));
@@ -375,14 +793,84 @@ test('session navigation and multiple uploads in a real browser with a simulated
     });
 
     await t.test('clears an expired session and returns to login without checking me again', async () => {
+      await evaluate(`localStorage.setItem('kornspace-motion', 'reduced'); window.dispatchEvent(new Event('kornspace-motion-change'))`);
       expired = true;
       const filename = path.join(temporaryDirectory, 'expired.txt');
       await writeFile(filename, 'content');
       await selectFiles([filename]);
       await until(() => evaluate("location.pathname === '/login' && Boolean(document.querySelector('a[href=\"/api/auth/google\"]'))"), 'login after failed renewal');
       assert.equal(refreshes, 1);
-      assert.equal(sessionChecks, 2);
+      assert.equal(sessionChecks, 3);
       assert.equal(await evaluate("Boolean(document.querySelector('aside[aria-label=\"Cuenta\"]'))"), false);
+    });
+    await t.test('vault scene autoplays without playback buttons, enters the chamber, loops and retains an accessible fallback', async () => {
+      await until(() => evaluate('Boolean(document.querySelector("[data-login-mascot]"))'), 'login mascot');
+      await until(() => evaluate('Boolean(document.querySelector("[data-mascot-canvas]"))'), 'Three canvas');
+      await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+      await evaluate(`document.querySelector('[data-login-mascot]').scrollIntoView({ block: 'center', behavior: 'instant' })`);
+      if (process.env.MASCOT_SCREENSHOT_PATH) {
+        const initial = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.MASCOT_SCREENSHOT_PATH.replace(/\.png$/u, '-initial.png'), Buffer.from(initial.data, 'base64'));
+      }
+      assert.equal(await evaluate('document.querySelector("[data-login-mascot] [role=img]").getAttribute("aria-label")'), 'El gallo de KornSpace guardando archivos en una bóveda');
+      assert.equal(await evaluate('localStorage.getItem("kornspace-motion")'), 'reduced');
+      assert.equal(await evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneStyle'), 'geometric-particles');
+      assert.equal(await evaluate('document.querySelector("[data-login-mascot]").getBoundingClientRect().right < document.querySelector("#login-title").closest("section").getBoundingClientRect().left'), true);
+      assert.equal(await evaluate('document.documentElement.scrollHeight <= innerHeight + 1'), true, 'desktop login fits the viewport');
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'scene animation').catch(async (error) => { throw new Error(error.message + JSON.stringify(await evaluate(`({ motion: document.documentElement.dataset.motion, hidden: document.hidden, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches, bounds: document.querySelector('[data-login-mascot]').getBoundingClientRect().toJSON(), fallback: Boolean(document.querySelector('[data-mascot-fallback]')) })`))); });
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "performing"'), 'automatic geometric assembly without pointer interaction');
+      const firstCycle = await evaluate('Number(document.querySelector("[data-mascot-canvas]").dataset.sceneCycle)');
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "entering"'), 'rooster entering the open vault');
+      if (process.env.MASCOT_SCREENSHOT_PATH) {
+        await until(() => evaluate('Number(document.querySelector("[data-mascot-canvas]").dataset.sceneTravel) > 0.85'), 'rooster inside the chamber');
+        const entering = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.MASCOT_SCREENSHOT_PATH.replace(/\.png$/u, '-entering.png'), Buffer.from(entering.data, 'base64'));
+      }
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "secured"'), 'vault closing after entry');
+      assert.equal(await evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneCargo'), 'stored');
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "returning" && Number(document.querySelector("[data-mascot-canvas]").dataset.sceneTravel) < 0.3'), 'rooster returning empty-handed');
+      assert.equal(await evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneCargo'), 'stored');
+      if (process.env.MASCOT_SCREENSHOT_PATH) {
+        const returning = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.MASCOT_SCREENSHOT_PATH.replace(/\.png$/u, '-returning.png'), Buffer.from(returning.data, 'base64'));
+      }
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "dispersing"'), 'automatic geometric dispersal');
+      await until(async () => await evaluate('Number(document.querySelector("[data-mascot-canvas]").dataset.sceneCycle)') > firstCycle, 'automatic cycle restart', 45000);
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "performing"'), 'formation after automatic restart');
+      assert.equal(await evaluate('document.querySelectorAll("[data-login-mascot] button").length'), 0, 'the scene has no playback buttons');
+      const canvasBounds = await evaluate('document.querySelector("[data-login-mascot] [role=img]").getBoundingClientRect().toJSON()');
+      const canvasClip = { x: canvasBounds.x, y: canvasBounds.y, width: canvasBounds.width, height: canvasBounds.height, scale: 1 };
+      const movingImage = await cdp.send('Page.captureScreenshot', { format: 'png', clip: canvasClip });
+      await delay(250);
+      assert.ok((await cdp.send('Page.captureScreenshot', { format: 'png', clip: canvasClip })).data !== movingImage.data, 'autoplay changes the actual rendered figure');
+      assert.equal(await evaluate('localStorage.getItem("kornspace-motion")'), 'reduced', 'the scene does not change workspace motion settings');
+      if (process.env.MASCOT_SCREENSHOT_PATH) {
+        await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "performing"'), 'formed mascot screenshot');
+        const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.MASCOT_SCREENSHOT_PATH, Buffer.from(screenshot.data, 'base64'));
+        await evaluate(`document.querySelector('button[aria-label="Activar tema claro"]').click()`);
+        await until(() => evaluate('document.documentElement.dataset.theme === "light"'), 'light mascot theme');
+        const light = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.MASCOT_SCREENSHOT_PATH.replace(/\.png$/u, '-light.png'), Buffer.from(light.data, 'base64'));
+        await evaluate(`document.querySelector('button[aria-label="Activar tema oscuro"]').click()`);
+        await until(() => evaluate('document.documentElement.dataset.theme === "dark"'), 'dark mascot theme');
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+        await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+        const mobile = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.MASCOT_SCREENSHOT_PATH.replace(/\.png$/u, '-mobile.png'), Buffer.from(mobile.data, 'base64'));
+        assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+      }
+      const checksBeforeReload = sessionChecks;
+      await cdp.send('Page.reload');
+      await until(() => sessionChecks > checksBeforeReload, 'session check on login reload');
+      await until(() => evaluate('Boolean(document.querySelector("[data-mascot-canvas]"))'), 'vault canvas after reload');
+      await evaluate(`document.querySelector('[data-login-mascot]').scrollIntoView({ block: 'center', behavior: 'instant' })`);
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'autoplay after reload without pressing play');
+      assert.equal(await evaluate('document.querySelectorAll("[data-login-mascot] button").length'), 0);
+      await evaluate(`document.querySelector('[data-mascot-canvas]').dispatchEvent(new Event('webglcontextlost', { cancelable: true }))`);
+      await until(() => evaluate('Boolean(document.querySelector("[data-mascot-fallback]"))'), 'WebGL fallback');
+      assert.equal(await evaluate(`Boolean(document.querySelector('a[href="/api/auth/google"]'))`), true);
     });
     assert.deepEqual(interceptionErrors, []);
   } finally {

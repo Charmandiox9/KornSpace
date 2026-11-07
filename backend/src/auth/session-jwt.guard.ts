@@ -1,5 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { GraphQLError } from 'graphql';
+import { GqlExecutionContext } from '@nestjs/graphql';
 import { RedisService } from '../redis/redis.service';
 import { accessCookieName, createSessionKey, jwtAudience, jwtIssuer, sessionCookieName } from './auth.constants';
 import { readCookie } from './auth-cookie.util';
@@ -14,7 +16,19 @@ export class SessionJwtGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    try { return await this.authenticate(context); }
+    catch (error: unknown) {
+      if (context.getType<string>() === 'graphql' && error instanceof UnauthorizedException) {
+        throw new GraphQLError(error.message, { extensions: { code: 'UNAUTHENTICATED', http: { status: 401 } } });
+      }
+      throw error;
+    }
+  }
+
+  private async authenticate(context: ExecutionContext): Promise<boolean> {
+    const request = context.getType<string>() === 'graphql'
+      ? GqlExecutionContext.create(context).getContext<{ req: AuthenticatedRequest }>().req
+      : context.switchToHttp().getRequest<AuthenticatedRequest>();
     const accessToken = readCookie(request, accessCookieName);
     const sessionId = readCookie(request, sessionCookieName);
     if (!accessToken || !sessionId) {

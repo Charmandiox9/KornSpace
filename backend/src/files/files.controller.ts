@@ -4,18 +4,21 @@ import {
   Delete,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
   Optional,
   ServiceUnavailableException,
+  UnsupportedMediaTypeException,
   Query,
   Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { ApiAcceptedResponse, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPayloadTooLargeResponse, ApiProperty, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ApiAcceptedResponse, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPayloadTooLargeResponse, ApiProduces, ApiProperty, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse, ApiUnsupportedMediaTypeResponse } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { FileLibraryService } from './file-library.service';
 import { FilesService } from './files.service';
 import type { StoredFileResponse, UploadFileResult, UploadOperationResponse } from './file.types';
 import { ManagedUploadsService } from './managed-uploads.service';
@@ -24,7 +27,9 @@ import { SessionJwtGuard } from '../auth/session-jwt.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUserContext } from '../auth/auth.types';
 
-class FileResponseDto implements StoredFileResponse {
+export class FileResponseDto implements StoredFileResponse {
+  @ApiProperty({ required: false, enum: ['OWNER', 'READER', 'EDITOR'] }) permission?: 'OWNER' | 'READER' | 'EDITOR';
+  @ApiProperty({ required: false, type: String, nullable: true, format: 'uuid' }) ownerId?: string | null;
   @ApiProperty({ format: 'uuid' })
   id!: string;
   @ApiProperty()
@@ -59,11 +64,20 @@ class UploadOperationResponseDto implements UploadOperationResponse {
   asynchronous!: boolean;
 }
 
+function encodeContentDispositionFilename(name: string): string {
+  return encodeURIComponent(name).replace(/[!'()*]/gu, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+const previewContentTypes = new Set([
+  'image/avif', 'image/bmp', 'image/gif', 'image/jpeg', 'image/png', 'image/webp',
+  'video/mp4', 'video/ogg', 'video/webm',
+]);
+
 @Controller('files')
 @UseGuards(SessionJwtGuard)
 @ApiTags('Files')
 export class FilesController {
-  constructor(private readonly filesService: FilesService, @Optional() private readonly uploads?: ManagedUploadsService) {}
+  constructor(private readonly filesService: FilesService, @Optional() private readonly uploads?: ManagedUploadsService, @Optional() private readonly library?: FileLibraryService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lista los archivos del usuario autenticado' })
@@ -81,7 +95,9 @@ export class FilesController {
     return this.filesService.listTrash(user.userId);
   }
 
+  @ApiForbiddenResponse({ description: 'Los lectores no pueden eliminar archivos.' })
   @Post(':id/trash')
+  @HttpCode(200)
   @ApiOperation({ summary: 'Mueve un archivo propio a la papelera durante 10 días' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ description: 'Archivo enviado a la papelera.' })
@@ -90,11 +106,13 @@ export class FilesController {
   }
 
   @Post(':id/restore')
+  @HttpCode(200)
+  @ApiConflictResponse({ description: 'El nombre ya existe. Confirmar con replaceFileId para mover la colisión a la papelera.' })
   @ApiOperation({ summary: 'Restaura un archivo propio de la papelera' })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ description: 'Archivo restaurado.' })
-  async restoreFromTrash(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext): Promise<void> {
-    await this.filesService.restoreFromTrash(id, user.userId);
+  async restoreFromTrash(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext, @Query('replaceFileId', new ParseUUIDPipe({ optional: true })) replaceFileId?: string): Promise<void> {
+    await this.filesService.restoreFromTrash(id, user.userId, replaceFileId);
   }
 
   @Delete(':id/permanent')
@@ -106,10 +124,13 @@ export class FilesController {
   }
 
   @Post()
+  @ApiForbiddenResponse({ description: 'Los lectores no pueden subir archivos a la carpeta destino.' })
   @ApiOperation({ summary: 'Sube un archivo a S3 y encola los mayores a 10 MiB' })
   @ApiQuery({ name: 'name', required: true, description: 'Nombre de 1 a 255 caracteres, sin caracteres de control.' })
+  @ApiQuery({ name: 'folderId', required: false, format: 'uuid', description: 'Carpeta propia de destino; omitido para la raíz.' })
   @ApiHeader({ name: 'Content-Type', required: true, description: 'Tipo MIME válido del archivo.' })
   @ApiHeader({ name: 'Content-Length', required: true, description: 'Tamaño decimal positivo, igual a los bytes transmitidos.' })
+  @ApiHeader({ name: 'X-Replace-File-Id', required: false, description: 'UUID de la colisi�n confirmada. El archivo anterior pasa a la papelera s�lo despu�s de guardar el nuevo contenido.' })
   @ApiHeader({ name: 'X-Upload-Id', required: false, description: 'UUID único por intento. Permite consultar y cancelar la carga antes de la confirmación; no reutilizar en un reintento.' })
   @ApiCreatedResponse({ type: UploadResponseDto, description: 'Archivo pequeño guardado y disponible.' })
   @ApiAcceptedResponse({ type: UploadResponseDto, description: 'Archivo grande guardado y en procesamiento.' })
@@ -117,15 +138,18 @@ export class FilesController {
   @ApiPayloadTooLargeResponse({ description: 'El archivo excede el máximo configurado de 100 MiB.' })
   @ApiConflictResponse({ description: 'El identificador del intento ya fue usado o cancelado. Consulta su estado y usa uno nuevo al reintentar.' })
   @ApiServiceUnavailableResponse({ description: 'Falló el almacenamiento S3, el guardado de metadatos en PostgreSQL o el encolado.' })
+  @ApiNotFoundResponse({ description: 'La carpeta de destino no existe o no pertenece al usuario.' })
   @ApiUnauthorizedResponse({ description: 'La sesión está ausente o no es válida.' })
   async upload(
     @Req() request: Request,
     @Query('name') name: string | undefined,
+    @Query('folderId', new ParseUUIDPipe({ optional: true })) folderId: string | undefined,
     @Headers('content-type') contentType: string | undefined,
     @Headers('content-length') contentLength: string | undefined,
     @Res({ passthrough: true }) response: Response,
     @CurrentUser() user: AuthenticatedUserContext,
     @Headers('x-upload-id') operationId?: string,
+    @Headers('x-replace-file-id') replaceFileId?: string,
   ): Promise<UploadFileResult> {
     if (contentLength === undefined || !/^\d+$/u.test(contentLength)) {
       throw new BadRequestException('La solicitud debe incluir Content-Length decimal válido.');
@@ -143,6 +167,7 @@ export class FilesController {
     if (operationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(operationId)) {
       throw new BadRequestException('X-Upload-Id debe ser un UUID v4 válido.');
     }
+    if (replaceFileId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(replaceFileId)) throw new BadRequestException('X-Replace-File-Id no es v�lido.');
     const controller = new AbortController();
     const abort = () => controller.abort();
     const close = () => { if (!response.writableFinished) abort(); };
@@ -152,8 +177,8 @@ export class FilesController {
     try {
       if (operationId && !this.uploads) throw new ServiceUnavailableException('El servicio de cargas no está disponible.');
       const result = operationId && this.uploads
-        ? await this.uploads.upload(request, name, contentType, sizeBytes, user.userId, operationId, controller.signal)
-        : await this.filesService.upload(request, name, contentType, sizeBytes, user.userId, { signal: controller.signal });
+        ? await this.uploads.upload(request, name, contentType, sizeBytes, user.userId, operationId, controller.signal, folderId ?? null, replaceFileId)
+        : await this.filesService.upload(request, name, contentType, sizeBytes, user.userId, { signal: controller.signal, folderId: folderId ?? null, replaceFileId });
       response.status(result.asynchronous ? 202 : 201);
       return result;
     } finally {
@@ -188,11 +213,39 @@ export class FilesController {
   @Get(':id')
   @ApiOperation({ summary: 'Descarga el contenido de un archivo disponible' })
   @ApiParam({ name: 'id', description: 'Identificador UUID del archivo.' })
+  @ApiProduces('application/octet-stream')
+  @ApiOkResponse({ description: 'Contenido binario; Content-Type y Content-Disposition reflejan los metadatos seguros del archivo.', schema: { type: 'string', format: 'binary' } })
+  @ApiNotFoundResponse({ description: 'El archivo no existe o el usuario no tiene acceso.' })
+  @ApiUnauthorizedResponse({ description: 'La sesión está ausente o no es válida.' })
+  @ApiServiceUnavailableResponse({ description: 'El archivo no está disponible o el almacenamiento no pudo entregarlo.' })
   async download(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext, @Res() response: Response): Promise<void> {
     const { file, body } = await this.filesService.getDownload(id, user.userId);
+    void this.library?.recordAccess(id, user.userId).catch(() => undefined);
     response.setHeader('Content-Type', file.contentType);
     response.setHeader('Content-Length', file.sizeBytes);
-    response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`);
+    response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeContentDispositionFilename(file.name)}`);
+    body.on('error', () => response.destroy());
+    body.pipe(response);
+  }
+
+  @Get(':id/preview')
+  @ApiOperation({ summary: 'Previsualiza un archivo disponible de imagen o video' })
+  @ApiParam({ name: 'id', description: 'Identificador UUID del archivo.' })
+  @ApiProduces('image/*', 'video/*')
+  @ApiOkResponse({ description: 'Contenido en línea para previsualización.' })
+  @ApiNotFoundResponse({ description: 'El archivo no existe o no pertenece al usuario.' })
+  @ApiUnauthorizedResponse({ description: 'La sesión está ausente o no es válida.' })
+  @ApiServiceUnavailableResponse({ description: 'El archivo no está disponible o S3 no pudo entregarlo.' })
+  @ApiUnsupportedMediaTypeResponse({ description: 'El contenido no es una imagen o video admitido para previsualización.' })
+  async preview(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext, @Res() response: Response): Promise<void> {
+    const { file, body } = await this.filesService.getDownload(id, user.userId);
+    const contentType = file.contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+    if (!previewContentTypes.has(contentType)) throw new UnsupportedMediaTypeException('Este tipo de archivo no admite previsualización.');
+    response.setHeader('Content-Type', contentType);
+    response.setHeader('Content-Length', file.sizeBytes);
+    response.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeContentDispositionFilename(file.name)}`);
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('Content-Security-Policy', 'sandbox');
     body.on('error', () => response.destroy());
     body.pipe(response);
   }

@@ -4,7 +4,16 @@ import type { UploadPhase } from './upload-registry.service';
 
 export type StoredFileStatus = 'PROCESSING' | 'AVAILABLE' | 'FAILED';
 
+export interface ShareRecipient {
+  userId: string;
+  username: string | null;
+  email: string;
+  name: string | null;
+}
+
 export interface StoredFileResponse {
+  permission?: 'OWNER' | 'READER' | 'EDITOR';
+  ownerId?: string | null;
   id: string;
   name: string;
   contentType: string;
@@ -32,7 +41,9 @@ export interface UploadOperationResponse {
 }
 
 export interface UploadLifecycle {
+  replaceFileId?: string;
   fileId?: string;
+  folderId?: string | null;
   signal?: AbortSignal;
   beforeCommit?: () => Promise<void>;
 }

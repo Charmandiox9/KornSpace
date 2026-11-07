@@ -5,3 +5,5 @@ export type * from './i18n';
 export type * from './api';
 export type * from './components';
 export type * from './notifications';
+export type * from './mascot';
+export type * from './workspace';

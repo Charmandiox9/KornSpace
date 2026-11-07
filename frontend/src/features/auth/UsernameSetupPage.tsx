@@ -1,3 +1,4 @@
+import { RoosterMark } from '@/components/RoosterMark';
 import type { UsernameSetupPageProps } from '@/types';
 
 export function UsernameSetupPage({
@@ -9,8 +10,8 @@ export function UsernameSetupPage({
   onSubmit,
 }: UsernameSetupPageProps) {
   return (
-    <section className="relative flex w-full max-w-[520px] self-center flex-col items-center overflow-hidden rounded-[20px] border border-line bg-surface px-[clamp(22px,7vw,64px)] py-[clamp(34px,7vw,68px)] text-center shadow-panel justify-self-center before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-linear-to-r before:from-accent before:to-secondary" aria-labelledby="username-title">
-      <p className="m-0 mb-5 text-[10px] font-bold tracking-[0.14em] text-accent uppercase">{copy.eyebrow}</p>
+    <section data-motion-enter className="relative flex w-full max-w-[520px] self-center flex-col items-center overflow-hidden rounded-[20px] border border-line bg-surface px-[clamp(22px,7vw,64px)] py-[clamp(34px,7vw,68px)] text-center shadow-panel justify-self-center before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-linear-to-r before:from-accent before:to-secondary" aria-labelledby="username-title">
+      <span className="mb-5 block size-12 text-accent" aria-hidden="true"><RoosterMark /></span>
       <h1 className="m-0 max-w-[500px] text-[clamp(34px,6vw,50px)] font-semibold tracking-[-0.045em] leading-[1.08]" id="username-title">{copy.usernameTitle}</h1>
       <p className="mt-[21px] max-w-[410px] text-[15px] leading-[1.75] text-muted">{copy.usernameDescription}</p>
       <form className="mt-[25px] grid w-full max-w-[360px] gap-2.5 text-left [&_label]:text-[13px] [&_label]:font-semibold" onSubmit={onSubmit}>

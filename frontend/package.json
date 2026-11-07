@@ -8,19 +8,22 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3001",
     "test:browser": "node --test tests/e2e/browser.test.mjs",
-    "test:unit": "tsc --module ES2022 --moduleResolution bundler --target ES2022 --strict --skipLibCheck --rootDir src --outDir .test-dist src/i18n/index.ts src/features/auth/session-destination.ts src/features/auth/session-store.ts src/features/files/upload-queue.ts src/features/files/upload-toast-presentation.ts src/lib/api-client.ts src/lib/upload-request.ts && node --test tests/*.test.mjs",
+    "test:unit": "tsc --module ES2022 --moduleResolution bundler --target ES2022 --strict --skipLibCheck --rootDir src --outDir .test-dist src/i18n/index.ts src/features/auth/session-destination.ts src/features/auth/session-store.ts src/features/files/upload-queue.ts src/features/files/upload-toast-presentation.ts src/lib/api-client.ts src/lib/upload-request.ts src/features/files/item-organization.ts src/lib/mascot-timeline.ts src/lib/mascot-spatial.ts src/lib/mascot-gait.ts src/lib/menu-placement.ts && node --test tests/*.test.mjs",
     "test": "pnpm test:unit"
   },
   "dependencies": {
+    "animejs": "^4.5.0",
     "next": "^15.5.12",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "sileo": "0.1.6"
+    "sileo": "0.1.6",
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.4",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/three": "^0.187.0",
     "postcss": "^8.5.32",
     "tailwindcss": "^4.3.4",
     "typescript": "~5.8.3"

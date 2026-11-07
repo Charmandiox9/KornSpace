@@ -1,8 +1,8 @@
 import { strict as assert } from 'node:assert';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
-import { BadRequestException, PayloadTooLargeException, ServiceUnavailableException } from '@nestjs/common';
-import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { BadRequestException, NotFoundException, PayloadTooLargeException, ServiceUnavailableException } from '@nestjs/common';
+import { PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { SQSClient } from '@aws-sdk/client-sqs';
 import { FilesService } from '../src/files/files.service';
@@ -16,14 +16,16 @@ interface StoredFileInput {
   sizeBytes: bigint;
   s3Key: string;
   ownerId: string;
+  folderId?: string | null;
   checksum: string | null;
-  status: 'PROCESSING' | 'AVAILABLE';
+  status: 'PROCESSING' | 'AVAILABLE' | 'FAILED';
 }
 
 interface TestOptions {
   failS3Put?: boolean;
   failDatabaseCreate?: boolean;
   failDatabaseList?: boolean;
+  folderOwnerId?: string;
 }
 
 function createHarness(options: TestOptions = {}) {
@@ -45,7 +47,14 @@ function createHarness(options: TestOptions = {}) {
   } as unknown as S3Client;
   const sqs = { send: async (): Promise<unknown> => ({}) } as unknown as SQSClient;
   const prisma = {
+    folderPermission: { findUnique: async () => null },
+    folder: {
+      findUnique: async ({ where }: { where: { id: string } }) => where.id === 'folder-1' && options.folderOwnerId ? { id: 'folder-1', ownerId: options.folderOwnerId, parentId: null } : null,
+      findFirst: async ({ where }: { where: { id: string; ownerId: string } }) =>
+        where.id === 'folder-1' && where.ownerId === options.folderOwnerId ? { id: 'folder-1' } : null,
+    },
     storedFile: {
+      findFirst: async () => null,
       findMany: async ({ where }: { where: { ownerId: string } }) => {
         if (options.failDatabaseList) throw new Error('PostgreSQL unavailable');
         return data.filter((file) => file.ownerId === where.ownerId).map(asPrismaFile);
@@ -62,6 +71,7 @@ function createHarness(options: TestOptions = {}) {
       },
     },
   } as unknown as PrismaService;
+  prisma.$transaction = (async (callback: (tx: PrismaService) => Promise<unknown>) => callback(prisma)) as unknown as typeof prisma.$transaction;
   const clients: FileStorageClients = { s3, sqs };
   return { service: new FilesService(prisma, clients), commands, data };
 }
@@ -159,4 +169,70 @@ test('FilesService maps PostgreSQL listing failures to a controlled 503', async 
   const { service } = createHarness({ failDatabaseList: true });
 
   await assert.rejects(service.list('user-1'), ServiceUnavailableException);
+});
+
+test('FilesService assigns uploads to an owned folder and rejects a foreign destination before S3', async () => {
+  const owned = createHarness({ folderOwnerId: 'user-1' });
+  await owned.service.upload(Readable.from('inside'), 'inside.txt', 'text/plain', 6, 'user-1', { folderId: 'folder-1' });
+  assert.equal(owned.data[0]?.folderId, 'folder-1');
+
+  const foreign = createHarness({ folderOwnerId: 'user-2' });
+  await assert.rejects(
+    foreign.service.upload(Readable.from('secret'), 'secret.txt', 'text/plain', 6, 'user-1', { folderId: 'folder-1' }),
+    NotFoundException,
+  );
+  assert.equal(foreign.commands.some((command) => command instanceof PutObjectCommand), false);
+});
+
+test('FilesService downloads only available files owned by the requester and maps S3 failures', async () => {
+  const file: StoredFileInput = {
+    id: 'a8120cf2-69df-4f51-a80a-ec44fe2120a1', name: 'report.txt', contentType: 'text/plain',
+    sizeBytes: 6n, s3Key: 'files/file-1', ownerId: 'owner-1', checksum: 'abc', status: 'AVAILABLE',
+  };
+  let stored = file;
+  let failGet = false;
+  const s3 = { send: async (command: unknown): Promise<unknown> => {
+    assert.ok(command instanceof GetObjectCommand);
+    if (failGet) throw new Error('S3 unavailable');
+    return { Body: Readable.from('report') };
+  } } as unknown as S3Client;
+  const prisma = { storedFile: { findFirst: async ({ where }: { where: { id: string; ownerId: string; deletedAt: null } }) =>
+    where.id === stored.id && where.ownerId === stored.ownerId ? asPrismaFile(stored) : null } } as unknown as PrismaService;
+  const service = new FilesService(prisma, { s3, sqs: { send: async () => ({}) } as unknown as SQSClient });
+
+  const download = await service.getDownload(file.id, 'owner-1');
+  assert.equal(download.file.name, 'report.txt');
+  assert.equal(download.file.contentType, 'text/plain');
+  assert.equal(await new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    download.body.on('data', (chunk: Buffer | string) => chunks.push(Buffer.from(chunk)));
+    download.body.on('end', () => resolve(Buffer.concat(chunks).toString()));
+    download.body.on('error', reject);
+  }), 'report');
+  await assert.rejects(service.getDownload(file.id, 'another-user'), /archivo solicitado/u);
+  await assert.rejects(service.getDownload('00000000-0000-4000-8000-000000000000', 'owner-1'), NotFoundException);
+  stored = { ...file, status: 'PROCESSING' };
+  await assert.rejects(service.getDownload(file.id, 'owner-1'), ServiceUnavailableException);
+  stored = { ...file, status: 'FAILED' };
+  await assert.rejects(service.getDownload(file.id, 'owner-1'), ServiceUnavailableException);
+  stored = file;
+  failGet = true;
+  await assert.rejects(service.getDownload(file.id, 'owner-1'), ServiceUnavailableException);
+});
+
+
+test('uploads into inherited editor folders retain the folder owner; inherited readers never send bytes', async () => {
+  const { inheritanceHarness } = await import('./permission-inheritance.harness');
+  const { ForbiddenException } = await import('@nestjs/common');
+  const h = inheritanceHarness();
+  let sent = 0;
+  const service = new FilesService(h.prisma, { s3: { send: async (command: unknown) => { sent += 1; if (command instanceof PutObjectCommand) { assert.ok(command.input.Body instanceof Readable); for await (const chunk of command.input.Body) { void chunk; } } return {}; } } as unknown as S3Client, sqs: {} as SQSClient });
+  h.folderGrants.set(h.rootId + ':peer', 'READER');
+  await assert.rejects(service.upload(Readable.from('test'), 'new.txt', 'text/plain', 4, 'peer', { folderId: h.childId }), ForbiddenException);
+  assert.equal(sent, 0);
+  h.folderGrants.set(h.rootId + ':peer', 'EDITOR');
+  const uploaded = await service.upload(Readable.from('test'), 'new.txt', 'text/plain', 4, 'peer', { folderId: h.childId });
+  assert.ok(sent > 0);
+  assert.equal(h.files.find((file) => file.id === uploaded.file.id)?.ownerId, 'owner');
+  assert.equal(h.files.find((file) => file.id === uploaded.file.id)?.folderId, h.childId);
 });

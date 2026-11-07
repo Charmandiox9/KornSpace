@@ -13,3 +13,9 @@ export interface UserPreferences {
   toggleLanguage: () => void;
   toggleTheme: () => void;
 }
+
+export interface MotionPreferences {
+  enabled: boolean;
+  systemReduced: boolean;
+  toggle: () => void;
+}

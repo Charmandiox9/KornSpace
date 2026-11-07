@@ -10,6 +10,7 @@ import type { AuthenticatedRequest } from '../src/auth/auth-request.types';
 
 function createContext(request: AuthenticatedRequest): ExecutionContext {
   return {
+    getType: () => 'http',
     switchToHttp: () => ({
       getRequest: () => request,
     }),
@@ -51,4 +52,18 @@ test('SessionJwtGuard rejects a valid JWT when its Redis session is missing', as
   const guard = new SessionJwtGuard(jwtStub, redisStub);
 
   await assert.rejects(guard.canActivate(createContext(request)), UnauthorizedException);
+});
+
+
+test('GraphQL reports expired sessions as HTTP 401 so the shared frontend refresh can run', async () => {
+  const guard = new SessionJwtGuard({} as JwtService, {} as RedisService);
+  const context = {
+    getType: () => 'graphql', getArgs: () => [undefined, {}, { req: { headers: {} } }, {}],
+    getClass: () => class TestResolver {}, getHandler: () => () => undefined,
+  } as unknown as ExecutionContext;
+  await assert.rejects(guard.canActivate(context), (error: unknown) => {
+    assert.ok(error instanceof Error && 'extensions' in error);
+    const extensions = error.extensions as { code?: string; http?: { status?: number } };
+    assert.equal(extensions.code, 'UNAUTHENTICATED'); assert.equal(extensions.http?.status, 401); return true;
+  });
 });
