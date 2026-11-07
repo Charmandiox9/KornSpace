@@ -64,16 +64,19 @@ export function createMascotParticles(sources: THREE.Object3D[], count = 14000):
     mesh.setColorAt(index, color);
     const sourceArea = surfaceAreas.get(triangle.source) ?? 1;
     const size = sourceArea < 0.025 ? 0.008 + random() * 0.006 : 0.019 + random() * 0.009;
-    particles.push({ source: triangle.source, position, scatter: new THREE.Vector3((random() - 0.5) * 4.5, (random() - 0.5) * 3, (random() - 0.5) * 2), phase: random() * Math.PI * 2, size });
+    let ancestor: THREE.Object3D | null = triangle.source;
+    let cargo = false;
+    while (ancestor) { if (ancestor.userData.mascotCargo === true) { cargo = true; break; } ancestor = ancestor.parent; }
+    particles.push({ source: triangle.source, position, scatter: new THREE.Vector3((random() - 0.5) * 4.5, (random() - 0.5) * 3, (random() - 0.5) * 2), phase: random() * Math.PI * 2, size, cargo });
   }
   const dummy = new THREE.Object3D();
-  function update(elapsed: number, dispersion: number) {
+  function update(elapsed: number, dispersion: number, carrying = true) {
     sources.forEach((root) => root.updateWorldMatrix(true, true));
     particles.forEach((particle, index) => {
       dummy.position.copy(particle.position).applyMatrix4(particle.source.matrixWorld).addScaledVector(particle.scatter, dispersion);
       dummy.position.y += Math.sin(elapsed * 1.1 + particle.phase) * (0.003 + dispersion * 0.035);
       dummy.rotation.set(particle.phase + elapsed * 0.12, particle.phase * 0.7 + elapsed * 0.09, particle.phase);
-      dummy.scale.setScalar(particle.size);
+      dummy.scale.setScalar(particle.cargo && !carrying ? 0 : particle.size);
       dummy.updateMatrix();
       mesh.setMatrixAt(index, dummy.matrix);
     });

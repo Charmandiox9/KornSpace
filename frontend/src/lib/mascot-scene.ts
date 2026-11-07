@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { createMascotParticles } from './mascot-particles';
 import { getMascotTimeline } from './mascot-timeline';
 import { createMascotVault } from './mascot-vault';
-import type { MascotSceneHandle, MascotSceneOptions } from '@/types';
+import { getMascotPose } from './mascot-spatial';
+import { getRoosterGait, roosterLeg } from './mascot-gait';
+import type { MascotSceneHandle, MascotSceneOptions, RoosterLegPose, RoosterLegRig, RoosterWingRig } from '@/types';
 
 /** A lightweight, original workspace rooster. No external models, fonts or textures. */
 export function createMascotScene(host: HTMLElement, options: MascotSceneOptions): MascotSceneHandle {
@@ -15,7 +17,7 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
   canvas.style.width = '100%'; canvas.style.height = '100%'; host.appendChild(canvas);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 30);
-  camera.position.set(3.5, 2.1, 9.6); camera.lookAt(0.1, -0.15, 0);
+  camera.position.set(2.4, 2.1, 9.6); camera.lookAt(0.1, -0.15, -0.2);
   const materials = new Set<THREE.Material>();
   const geometries = new Set<THREE.BufferGeometry>();
   function material(color: number, roughness = 0.65) {
@@ -42,16 +44,17 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
     box(group, paper, [-0.36, -0.33, 0.18], [0.31, 0.025, 0.02]);
     return group;
   }
-  const base = new THREE.Mesh(geometry(new THREE.CylinderGeometry(2.95, 3.02, 0.16, 64)), pedestalMaterial); base.position.y = -1.79; scene.add(base);
-  const rooster = new THREE.Group(); rooster.position.set(-1.1, -0.55, 0.65); rooster.scale.setScalar(0.95); scene.add(rooster);
+  const base = new THREE.Mesh(geometry(new THREE.CylinderGeometry(3.25, 3.32, 0.16, 64)), pedestalMaterial); base.position.set(0.2, -1.79, -0.35); scene.add(base);
+  const rooster = new THREE.Group();
+  const initialPose = getMascotPose(0); rooster.position.set(initialPose.x, initialPose.y, initialPose.z); rooster.scale.setScalar(initialPose.scale); scene.add(rooster);
   const tail = new THREE.Group(); rooster.add(tail);
-  [0x545ca7, 0x6f83cc, 0x8f77cc, 0x439e95, 0x70b6a2, 0x287b7c].forEach((color, index) => {
-    const feather = oval(tail, material(color), [-0.51 - index * 0.09, 0.16 + index * 0.085, -0.28 - index * 0.025], [0.13, 0.65 + index * 0.02, 0.10]); feather.rotation.z = 0.58 + index * 0.16;
-    oval(feather, gold, [0, 0.1, 0.78], [0.075, 0.75, 0.10]);
+  [0xc4bfd8, 0xe1dae6, 0xa89ec4].forEach((color, index) => {
+    const feather = oval(tail, material(color), [-0.38 - index * 0.055, 0.10 + index * 0.06, -0.39 - index * 0.045], [0.13, 0.34 + index * 0.045, 0.10]); feather.rotation.z = 0.24 + index * 0.19;
   });
   oval(rooster, white, [0, 0, 0], [0.61, 0.78, 0.46]);
-  oval(rooster, white, [0.03, 0.58, 0.04], [0.32, 0.55, 0.3]);
-  const head = new THREE.Group(); head.position.set(0.04, 0.95, 0.1); rooster.add(head);
+  const neck = new THREE.Group(); neck.position.set(0.03, 0.48, 0.04); rooster.add(neck);
+  oval(neck, white, [0, 0.10, 0], [0.32, 0.55, 0.3]);
+  const head = new THREE.Group(); head.position.set(0.01, 0.47, 0.06); neck.add(head);
   oval(head, white, [0, 0, 0], [0.43, 0.46, 0.38]);
   [-0.22, 0, 0.21].forEach((x, index) => { const comb = oval(head, red, [x, 0.44 + (index === 1 ? 0.06 : 0), 0], [0.14, index === 1 ? 0.25 : 0.20, 0.105]); comb.rotation.z = -x * 0.8; });
   const eyes = new THREE.Group(); head.add(eyes);
@@ -64,17 +67,37 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
   });
   const beak = new THREE.Mesh(geometry(new THREE.ConeGeometry(0.145, 0.31, 4)), gold); beak.rotation.x = Math.PI / 2; beak.rotation.z = Math.PI / 4; beak.position.set(0, -0.05, 0.47); head.add(beak);
   oval(head, red, [0, -0.27, 0.28], [0.085, 0.19, 0.09]);
-  const leftWing = oval(rooster, white, [-0.55, -0.05, 0.19], [0.18, 0.46, 0.22]); leftWing.rotation.z = 0.4;
-  const rightWing = oval(rooster, white, [0.55, -0.02, 0.19], [0.18, 0.46, 0.22]); rightWing.rotation.z = -0.4;
-  [-0.25, 0.25].forEach((x) => {
-    box(rooster, gold, [x, -0.96, 0.02], [0.065, 0.4, 0.065]);
-    oval(rooster, gold, [x, -1.19, 0.13], [0.14, 0.07, 0.17]);
+  function wing(side: number): RoosterWingRig {
+    const shoulder = new THREE.Group(); shoulder.position.set(side * 0.46, 0.18, 0.10); rooster.add(shoulder);
+    oval(shoulder, white, [side * 0.035, -0.13, 0.035], [0.17, 0.27, 0.17]);
+    const elbow = new THREE.Group(); elbow.position.set(side * 0.08, -0.24, 0.09); shoulder.add(elbow);
+    oval(elbow, white, [-side * 0.04, -0.05, 0.17], [0.13, 0.16, 0.20]);
+    const wrist = new THREE.Group(); wrist.position.set(-side * 0.07, -0.12, 0.38); elbow.add(wrist);
+    oval(wrist, white, [0, -0.04, 0.16], [0.12, 0.16, 0.10]);
+    return { shoulder, elbow, wrist };
+  }
+  const leftWing = wing(-1), rightWing = wing(1);
+  function leg(x: number): RoosterLegRig {
+    const hip = new THREE.Group(); hip.position.set(x, roosterLeg.hipY, 0.02); rooster.add(hip);
+    oval(hip, white, [0, -0.12, 0], [0.105, 0.18, 0.11]);
+    const upper = new THREE.Mesh(geometry(new THREE.CylinderGeometry(0.045, 0.035, roosterLeg.upper, 12)), gold); upper.position.y = -roosterLeg.upper / 2; hip.add(upper);
+    const knee = new THREE.Group(); knee.position.y = -roosterLeg.upper; hip.add(knee);
+    oval(knee, gold, [0, 0, 0], [0.055, 0.055, 0.055]);
+    const lower = new THREE.Mesh(geometry(new THREE.CylinderGeometry(0.035, 0.028, roosterLeg.lower, 12)), gold); lower.position.y = -roosterLeg.lower / 2; knee.add(lower);
+    const ankle = new THREE.Group(); ankle.position.y = -roosterLeg.lower; knee.add(ankle);
+    oval(ankle, gold, [0, -0.035, 0.08], [0.13, 0.055, 0.15]);
     [-1, 0, 1].forEach((toe) => {
-      const claw = oval(rooster, gold, [x + toe * 0.075, -1.20, 0.27], [0.045, 0.045, 0.14]); claw.rotation.y = toe * 0.25;
+      const claw = oval(ankle, gold, [toe * 0.075, -0.05, 0.20], [0.035, 0.035, 0.12]); claw.rotation.y = toe * 0.25;
     });
-  });
+    return { hip, knee, ankle };
+  }
+  const leftLeg = leg(-0.25), rightLeg = leg(0.25);
   const heldFolder = folder(violet); heldFolder.position.set(0, -0.16, 0.57); heldFolder.scale.setScalar(0.82); heldFolder.rotation.z = -0.09; rooster.add(heldFolder);
-  oval(rooster, white, [-0.48, -0.22, 0.75], [0.12, 0.16, 0.1]); oval(rooster, white, [0.5, -0.17, 0.75], [0.12, 0.16, 0.1]);
+  heldFolder.userData.mascotCargo = true;
+  function applyLeg(rig: RoosterLegRig, pose: RoosterLegPose) {
+    rig.hip.rotation.x = pose.hip; rig.knee.rotation.x = pose.knee; rig.ankle.rotation.x = pose.ankle;
+  }
+  const neutralGait = getRoosterGait(0, 0); applyLeg(leftLeg, neutralGait.left); applyLeg(rightLeg, neutralGait.right);
   const stack = new THREE.Group(); stack.position.set(-1.9, -1.25, 0.85); stack.scale.setScalar(0.7); stack.rotation.y = -0.23; scene.add(stack);
   [material(0xd9ad58), material(0x6e8cce)].forEach((surface, index) => { const item = folder(surface); item.scale.setScalar(0.48); item.position.set(index * 0.1, index * 0.12, -index * 0.14); stack.add(item); });
   // Small irregular cereal flakes rest on the desktop.
@@ -93,6 +116,8 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
   canvas.dataset.scenePhase = options.motion ? 'assembling' : 'performing';
   canvas.dataset.sceneCycle = '0';
   let motion = options.motion, visible = true, disposed = false, lost = false, elapsed = 0, lastTime = 0;
+  let walkedDistance = 0, gaitWeight = 0, loadWeight = 1;
+  let previousX = initialPose.x, previousZ = initialPose.z;
   let targetX = 0, targetY = 0;
   const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
   const render = () => { if (!disposed && !lost) renderer.render(scene, camera); };
@@ -105,24 +130,43 @@ export function createMascotScene(host: HTMLElement, options: MascotSceneOptions
     const action = timeline.action * Math.PI * 2;
     const formed = 1 - timeline.dispersion;
     const walking = timeline.phase === 'entering' || timeline.phase === 'returning';
-    rooster.position.x = -1.1 + timeline.travel * 2.05;
-    rooster.position.z = 0.65 - timeline.travel * 1.75;
-    rooster.position.y = -0.55 - timeline.travel * 0.15 + (walking ? Math.abs(Math.sin(elapsed * 7)) * 0.07 : Math.sin(action * 2) * 0.035) * formed;
-    rooster.scale.setScalar(0.95 - timeline.travel * 0.13);
-    rooster.rotation.y = walking ? Math.sin(timeline.travel * Math.PI) * 2.2 : Math.sin(action) * 0.18 * formed;
+    const pose = getMascotPose(timeline.travel);
+    const distance = Math.hypot(pose.x - previousX, pose.z - previousZ);
+    previousX = pose.x; previousZ = pose.z;
+    const smoothing = 1 - Math.exp(-delta * 12);
+    if (walking) walkedDistance += distance / pose.scale;
+    gaitWeight += ((walking && distance > 0.0001 ? 1 : 0) - gaitWeight) * smoothing;
+    loadWeight += ((timeline.carrying ? 1 : 0) - loadWeight) * smoothing;
+    const gait = getRoosterGait(walkedDistance, gaitWeight);
+    applyLeg(leftLeg, gait.left); applyLeg(rightLeg, gait.right);
+    rooster.position.set(pose.x, pose.y + gait.bodyLift * pose.scale, pose.z);
+    rooster.scale.setScalar(pose.scale);
+    const heading = walking ? pose.heading + (timeline.phase === 'returning' ? Math.PI : 0) : timeline.travel > 0 ? Math.PI : Math.sin(action) * 0.18 * formed;
+    rooster.rotation.y += Math.atan2(Math.sin(heading - rooster.rotation.y), Math.cos(heading - rooster.rotation.y)) * 0.14;
+    rooster.rotation.z = gait.bodyRoll;
+    rooster.rotation.x = gait.bodyPitch;
     head.rotation.y += (Math.sin(action) * 0.3 * formed + targetX * 0.18 - head.rotation.y) * 0.12;
-    head.rotation.x += (targetY * 0.10 + Math.sin(action * 2) * 0.08 * formed - head.rotation.x) * 0.12;
+    neck.rotation.x += (-gait.bodyPitch * 0.7 + Math.sin(action * 2) * 0.025 * formed - neck.rotation.x) * smoothing;
+    head.rotation.x += (targetY * 0.10 - gait.bodyPitch * 0.3 + Math.sin(action * 2) * 0.035 * formed - head.rotation.x) * smoothing;
     heldFolder.rotation.z = -0.09 + Math.sin(action) * 0.08 * formed;
-    heldFolder.position.y = -0.16 + (1 - Math.cos(action)) * 0.05 * formed;
-    leftWing.rotation.z = 0.4 + Math.sin(action * 2) * 0.16 * formed;
-    rightWing.rotation.z = -0.4 - Math.sin(action * 2) * 0.16 * formed;
+    heldFolder.position.y = -0.16 + Math.sin(action) * 0.015 * formed;
+    [leftWing, rightWing].forEach((rig, index) => {
+      const side = index ? 1 : -1;
+      rig.shoulder.rotation.z = side * ((1 - loadWeight) * 0.12 + gait.wingSwing * (1 - loadWeight * 0.8));
+      rig.shoulder.rotation.x = (1 - loadWeight) * 0.28;
+      rig.elbow.rotation.x = -0.65 * (1 - loadWeight);
+      rig.elbow.rotation.y = side * 0.5 * (1 - loadWeight);
+      rig.wrist.rotation.x = 0.35 * (1 - loadWeight);
+    });
     tail.rotation.z = Math.sin(action) * 0.12 * formed;
     const blink = elapsed % 5;
     eyes.scale.y = blink > 4.78 ? Math.max(0.08, Math.min(1, Math.abs(blink - 4.89) / 0.11)) : 1;
-    cloud.update(elapsed, timeline.dispersion);
-    vault.update(timeline.doorOpen, timeline.phase === 'secured' && timeline.doorOpen < 0.1);
+    cloud.update(elapsed, timeline.dispersion, timeline.carrying);
+    vault.update(timeline.doorOpen, timeline.phase === 'secured' && timeline.doorOpen < 0.1, timeline.stored);
     canvas.dataset.scenePhase = timeline.phase;
     canvas.dataset.sceneCycle = String(timeline.cycle);
+    canvas.dataset.sceneTravel = String(timeline.travel);
+    canvas.dataset.sceneCargo = timeline.carrying ? 'carrying' : 'stored';
     render();
   }
   function synchronize() {

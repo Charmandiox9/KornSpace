@@ -731,7 +731,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
       assert.equal(sessionChecks, 3);
       assert.equal(await evaluate("Boolean(document.querySelector('aside[aria-label=\"Cuenta\"]'))"), false);
     });
-    await t.test('vault scene autoplays on entry and reload, loops, pauses and retains an accessible fallback', async () => {
+    await t.test('vault scene autoplays without playback buttons, enters the chamber, loops and retains an accessible fallback', async () => {
       await until(() => evaluate('Boolean(document.querySelector("[data-login-mascot]"))'), 'login mascot');
       await until(() => evaluate('Boolean(document.querySelector("[data-mascot-canvas]"))'), 'Three canvas');
       await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
@@ -750,26 +750,28 @@ test('session navigation and multiple uploads in a real browser with a simulated
       const firstCycle = await evaluate('Number(document.querySelector("[data-mascot-canvas]").dataset.sceneCycle)');
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "entering"'), 'rooster entering the open vault');
       if (process.env.MASCOT_SCREENSHOT_PATH) {
+        await until(() => evaluate('Number(document.querySelector("[data-mascot-canvas]").dataset.sceneTravel) > 0.85'), 'rooster inside the chamber');
         const entering = await cdp.send('Page.captureScreenshot', { format: 'png' });
         await writeFile(process.env.MASCOT_SCREENSHOT_PATH.replace(/\.png$/u, '-entering.png'), Buffer.from(entering.data, 'base64'));
       }
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "secured"'), 'vault closing after entry');
+      assert.equal(await evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneCargo'), 'stored');
+      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "returning" && Number(document.querySelector("[data-mascot-canvas]").dataset.sceneTravel) < 0.3'), 'rooster returning empty-handed');
+      assert.equal(await evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneCargo'), 'stored');
+      if (process.env.MASCOT_SCREENSHOT_PATH) {
+        const returning = await cdp.send('Page.captureScreenshot', { format: 'png' });
+        await writeFile(process.env.MASCOT_SCREENSHOT_PATH.replace(/\.png$/u, '-returning.png'), Buffer.from(returning.data, 'base64'));
+      }
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "dispersing"'), 'automatic geometric dispersal');
       await until(async () => await evaluate('Number(document.querySelector("[data-mascot-canvas]").dataset.sceneCycle)') > firstCycle, 'automatic cycle restart', 45000);
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "performing"'), 'formation after automatic restart');
-      await evaluate(`document.querySelector('button[aria-label="Pausar movimiento"]').click()`);
-      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "paused"'), 'scene pause');
-      await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+      assert.equal(await evaluate('document.querySelectorAll("[data-login-mascot] button").length'), 0, 'the scene has no playback buttons');
       const canvasBounds = await evaluate('document.querySelector("[data-login-mascot] [role=img]").getBoundingClientRect().toJSON()');
       const canvasClip = { x: canvasBounds.x, y: canvasBounds.y, width: canvasBounds.width, height: canvasBounds.height, scale: 1 };
-      const pausedImage = await cdp.send('Page.captureScreenshot', { format: 'png', clip: canvasClip });
-      await delay(200);
-      assert.ok((await cdp.send('Page.captureScreenshot', { format: 'png', clip: canvasClip })).data === pausedImage.data, 'pause freezes the actual rendered figure');
-      await evaluate(`document.querySelector('button[aria-label="Reanudar movimiento"]').click()`);
-      await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'scene resume');
+      const movingImage = await cdp.send('Page.captureScreenshot', { format: 'png', clip: canvasClip });
       await delay(250);
-      assert.notEqual((await cdp.send('Page.captureScreenshot', { format: 'png', clip: canvasClip })).data, pausedImage.data, 'play changes the actual rendered figure');
-      assert.equal(await evaluate('localStorage.getItem("kornspace-motion")'), 'reduced', 'scene controls do not change workspace motion settings');
+      assert.ok((await cdp.send('Page.captureScreenshot', { format: 'png', clip: canvasClip })).data !== movingImage.data, 'autoplay changes the actual rendered figure');
+      assert.equal(await evaluate('localStorage.getItem("kornspace-motion")'), 'reduced', 'the scene does not change workspace motion settings');
       if (process.env.MASCOT_SCREENSHOT_PATH) {
         await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.scenePhase === "performing"'), 'formed mascot screenshot');
         const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' });
@@ -793,7 +795,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await until(() => evaluate('Boolean(document.querySelector("[data-mascot-canvas]"))'), 'vault canvas after reload');
       await evaluate(`document.querySelector('[data-login-mascot]').scrollIntoView({ block: 'center', behavior: 'instant' })`);
       await until(() => evaluate('document.querySelector("[data-mascot-canvas]").dataset.sceneMotion === "active"'), 'autoplay after reload without pressing play');
-      assert.equal(await evaluate('document.querySelector("[data-login-mascot] button").getAttribute("aria-pressed")'), 'false');
+      assert.equal(await evaluate('document.querySelectorAll("[data-login-mascot] button").length'), 0);
       await evaluate(`document.querySelector('[data-mascot-canvas]').dispatchEvent(new Event('webglcontextlost', { cancelable: true }))`);
       await until(() => evaluate('Boolean(document.querySelector("[data-mascot-fallback]"))'), 'WebGL fallback');
       assert.equal(await evaluate(`Boolean(document.querySelector('a[href="/api/auth/google"]'))`), true);
