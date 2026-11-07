@@ -1,4 +1,13 @@
 export interface TranslationCatalog {
+  suggestedFolders: string;
+  emptyStarred: string;
+  emptySuggestions: string;
+  suggestedFiles: string;
+  suggestedVideos: string;
+  storageHeading: string;
+  storageTotal: string;
+  storageScope: string;
+  inTrash: string;
   systemReducedMotion: string;
   reduceAnimations: string;
   enableAnimations: string;

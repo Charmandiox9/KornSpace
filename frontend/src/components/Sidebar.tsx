@@ -1,6 +1,5 @@
 import { RoosterMark } from './RoosterMark';
-import type { ReactNode } from 'react';
-import type { SidebarProps } from '@/types';
+import type { SidebarProps, WorkspaceNavItem } from '@/types';
 import { AccountMenu } from './AccountMenu';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -40,11 +39,8 @@ function UsersIcon() {
   );
 }
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: ReactNode;
-}
+function StarIcon() { return <svg className={iconClass} viewBox="0 0 24 24" strokeLinejoin="round" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z" /></svg>; }
+function StorageIcon() { return <svg className={iconClass} viewBox="0 0 24 24" strokeLinejoin="round" aria-hidden="true"><path d="M7 19a5 5 0 1 1 0-10 6 6 0 0 1 11.5-1 5.5 5.5 0 0 1-.5 11H7Z" /></svg>; }
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
@@ -53,11 +49,13 @@ export function Sidebar(props: SidebarProps) {
   const pathname = usePathname() ?? '/files';
 
   // Solo destinos con vista propia: cada href tiene su ruta en app/(workspace).
-  const navItems: NavItem[] = [
+  const navItems: WorkspaceNavItem[] = [
     { href: '/home', label: copy.home, icon: <HomeIcon /> },
     { href: '/files', label: copy.myDrive, icon: <DriveIcon /> },
     { href: '/shared', label: copy.sharedWithMe, icon: <UsersIcon /> },
+    { href: '/starred', label: copy.starredItems, icon: <StarIcon /> },
     { href: '/trash', label: copy.trashHeading, icon: <TrashIcon /> },
+    { href: '/storage', label: copy.storageHeading, icon: <StorageIcon /> },
   ];
 
   return (

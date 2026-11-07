@@ -26,7 +26,6 @@ export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: Li
   const [owner, setOwner] = useState('');
   const [modified, setModified] = useState('');
   const [location, setLocation] = useState('');
-  const [showRecent, setShowRecent] = useState(!sharedOnly);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -48,7 +47,7 @@ export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: Li
   const available = useMemo(() => [...new Map([...all, ...recent].map((file) => [file.id, file])).values()], [all, recent]);
   const owners = new Map(available.filter((file) => file.ownerId).map((file) => [file.ownerId!, file.ownerName ?? file.ownerId!]));
   const locations = new Map(available.filter((file) => file.folderId).map((file) => [file.folderId!, file.folderName ?? file.folderId!]));
-  const files = (showRecent ? recent : all).filter((file) => {
+  const files = (sharedOnly ? all : recent).filter((file) => {
     const type = file.contentType.split(';')[0];
     return file.name.toLocaleLowerCase().includes(search.toLocaleLowerCase())
       && (!kind || (kind === 'document' ? /^application\/(pdf|json|xml|msword|rtf|vnd\.(openxmlformats-officedocument|ms-|oasis))/.test(type) : type.startsWith(`${kind}/`)))
@@ -56,8 +55,10 @@ export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: Li
       && (!location || (location === 'root' ? !file.folderId : file.folderId === location))
       && (!modified || new Date(file.updatedAt ?? file.createdAt).getTime() >= Date.now() - Number(modified) * 86400000);
   });
+  const suggestedFolderIds = new Set(recent.map((file) => file.folderId));
+  const suggestedFolders = [...props.folders].sort((a, b) => Number(suggestedFolderIds.has(b.id)) - Number(suggestedFolderIds.has(a.id)) || b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
   const selectClass = 'min-h-10 max-w-full rounded-full border border-line bg-raised px-4 text-xs text-ink focus-visible:outline-accent';
-  const toolbar = <div className="mb-7 grid gap-5 border-b border-line pb-7">
+  const toolbar = <div className="mb-3 grid gap-4 border-b border-line pb-4">
     <label className="flex items-center gap-3 rounded-2xl border border-line bg-raised px-5 py-3 text-muted"><span aria-hidden="true">⌕</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} aria-label={copy.searchFiles} placeholder={copy.searchFiles} className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none" /></label>
     <div className="flex flex-wrap gap-2">
       <select aria-label={copy.filterType} className={selectClass} value={kind} onChange={(event) => setKind(event.target.value)}><option value="">{copy.filterType}: {copy.filterAll}</option>{[['image', copy.filterImages], ['video', copy.filterVideos], ['audio', copy.filterAudio], ['text', copy.filterText], ['document', copy.filterDocuments]].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
@@ -65,7 +66,6 @@ export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: Li
       <select aria-label={copy.filterModified} className={selectClass} value={modified} onChange={(event) => setModified(event.target.value)}><option value="">{copy.filterModified}: {copy.filterAll}</option><option value="7">{copy.filterWeek}</option><option value="30">{copy.filterMonth}</option></select>
       <select aria-label={copy.filterLocation} className={selectClass} value={location} onChange={(event) => setLocation(event.target.value)}><option value="">{copy.filterLocation}: {copy.filterAll}</option><option value="root">{copy.myDrive}</option>{[...locations].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
     </div>
-    <div className="flex gap-2"><button type="button" aria-pressed={showRecent} className={`rounded-lg px-4 py-2 text-xs font-semibold ${showRecent ? 'bg-accent-soft text-accent' : 'text-muted'}`} onClick={() => setShowRecent(true)}>{copy.recentFiles}</button><button type="button" aria-pressed={!showRecent} className={`rounded-lg px-4 py-2 text-xs font-semibold ${!showRecent ? 'bg-accent-soft text-accent' : 'text-muted'}`} onClick={() => setShowRecent(false)}>{copy.allFiles}</button></div>
   </div>;
-  return <FilesPage {...props} showQuickAccess={!sharedOnly} files={files} folders={search || kind || owner || modified || location ? [] : sharedOnly ? props.folders.filter((folder) => folder.ownerId !== props.userId) : props.folders} currentFolder={null} currentFolderId={null} breadcrumbs={[]} title={sharedOnly ? copy.sharedWithMe : copy.homeWelcome} toolbar={toolbar} isLoading={busy} notice={error || props.notice} />;
+  return <FilesPage {...props} collapsibleSections={!sharedOnly} foldersLabel={!sharedOnly ? copy.suggestedFolders : undefined} filesLabel={!sharedOnly ? copy.suggestedFiles : undefined} showQuickAccess={!sharedOnly} files={files} folders={search || kind || owner || modified || location ? [] : sharedOnly ? props.folders.filter((folder) => folder.ownerId !== props.userId) : suggestedFolders} currentFolder={null} currentFolderId={null} breadcrumbs={[]} title={sharedOnly ? copy.sharedWithMe : copy.homeWelcome} toolbar={toolbar} isLoading={busy} notice={error || props.notice} />;
 }

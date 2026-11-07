@@ -15,9 +15,15 @@ import { FileViewer } from './FileViewer';
 import { FileEditDialog } from './FileEditDialog';
 import { authenticatedFetch } from '@/lib/api-client';
 import { sileo } from 'sileo';
+import Link from 'next/link';
+import { ActionMenu } from './ActionMenu';
+import { CollapsibleSection } from './CollapsibleSection';
 
-export function FilesPage({ itemPreferences = [], showQuickAccess = false, onOrganize, userId, copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, notice, apiUrl, onUpload, onUploadDirectory, onNavigate, onMoveToTrash, onDeletePermanent, onRestore, onCreateFolder, onChanged, title, toolbar, initialTrash = false, isLoading = false }: FilesPageProps) {
-  const [sortOrder, setSortOrder] = useState<SortOrder>('nameAsc');
+export function FilesPage({ collapsibleSections = false, listView = false, initialSortOrder = 'nameAsc', foldersLabel, filesLabel, emptyLabel, itemPreferences = [], showQuickAccess = false, onOrganize, userId, copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, notice, apiUrl, onUpload, onUploadDirectory, onNavigate, onMoveToTrash, onDeletePermanent, onRestore, onCreateFolder, onChanged, title, toolbar, initialTrash = false, isLoading = false }: FilesPageProps) {
+  const [sortOrder, setSortOrder] = useState<SortOrder>(initialSortOrder);
+  const [actionSelection, setActionSelection] = useState<string | null>(null);
+  function selectAction(kind: 'files' | 'folders', id: string) { setActionSelection(`${kind}:${id}`); setSelected(null); setFolderDetails(null); }
+  function dismissAction() { setActionSelection(null); setSelected(null); setFolderDetails(null); }
   const [folderDetails, setFolderDetails] = useState<StoredFolder | null>(null);
   const preferencesById = useMemo(() => new Map(itemPreferences.map((item) => [`${item.kind}:${item.id}`, item])), [itemPreferences]);
   const preference = (kind: 'files' | 'folders', id: string) => preferencesById.get(`${kind}:${id}`);
@@ -50,7 +56,7 @@ export function FilesPage({ itemPreferences = [], showQuickAccess = false, onOrg
   }, [deleting]);
   const selectedFile = shownFiles.find((file) => file.id === selected?.id) ?? null;
   useEffect(() => { setHost(document.getElementById('workspace-create-actions')); }, []);
-  useEffect(() => { setSelected(null); setViewing(null); setFolderDetails(null); }, [currentFolderId, initialTrash]);
+  useEffect(() => { setSelected(null); setViewing(null); setFolderDetails(null); setActionSelection(null); }, [currentFolderId, initialTrash]);
   useEffect(() => { seenEntries.current.clear(); previousPositions.current.clear(); }, [currentFolderId, initialTrash]);
   useEffect(() => {
     if (isLoading) return;
@@ -83,7 +89,7 @@ export function FilesPage({ itemPreferences = [], showQuickAccess = false, onOrg
   function closeMenu(element: HTMLElement) { element.closest('details')?.removeAttribute('open'); }
   const previewUrl = (file: StoredFile) => apiUrl(`/api/files/${encodeURIComponent(file.id)}/preview`);
   const downloadUrl = (file: StoredFile) => apiUrl(`/api/files/${encodeURIComponent(file.id)}`);
-  const canOpen = (file: StoredFile) => !initialTrash && file.status === 'AVAILABLE';
+  const canOpen = (file: StoredFile) => !initialTrash && !file.deletedAt && file.status === 'AVAILABLE';
   const isImage = (file: StoredFile) => ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif', 'image/bmp'].includes(file.contentType.split(';')[0]);
   const isVideo = (file: StoredFile) => ['video/mp4', 'video/webm', 'video/ogg'].includes(file.contentType.split(';')[0]);
 
@@ -99,11 +105,11 @@ export function FilesPage({ itemPreferences = [], showQuickAccess = false, onOrg
       </div>
     </details>, host)}
     <WorkspaceHeader copy={copy} location={title ? [{ id: null, name: title }] : initialTrash ? [{ id: null, name: copy.trashHeading }] : [{ id: null, name: copy.myDrive }, ...breadcrumbs.map((folder) => ({ id: folder.id, name: folder.name })), ...(currentFolder ? [{ id: currentFolder.id, name: currentFolder.name }] : [])]} onNavigate={initialTrash ? undefined : onNavigate} />
-    {showQuickAccess && (['shortcut', 'starred'] as const).map((category) => {
+    {showQuickAccess && (['shortcut'] as const).map((category) => {
       const entries = itemPreferences.filter((item) => item[category]);
       if (!entries.length) return null;
-      return <section key={category} aria-label={category === 'shortcut' ? copy.quickAccess : copy.starredItems} className="mt-5 border-b border-line pb-5">
-        <h2 className="mb-3 text-sm font-semibold">{category === 'shortcut' ? copy.quickAccess : copy.starredItems}</h2>
+      return <section key={category} aria-label={copy.quickAccess} className="mt-5 border-b border-line pb-5">
+        <h2 className="mb-3 text-sm font-semibold">{copy.quickAccess}</h2>
         <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3 p-0">{entries.map((entry) => <li key={`${entry.kind}:${entry.id}`}><button type="button" disabled={entry.file !== undefined && entry.file.status !== 'AVAILABLE'} className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-line bg-raised px-3 py-2 text-left text-sm hover:bg-accent-soft" onClick={() => { if (entry.folder) onNavigate(entry.id); else if (entry.file) setViewing(entry.file); }}><span style={{ color: itemColors[entry.color] }}><ActionIcon name={entry.kind === 'folders' ? 'organize' : 'open'} /></span><span className="min-w-0 truncate">{entry.folder?.name ?? entry.file?.name}</span></button></li>)}</ul>
       </section>;
     })}
@@ -117,26 +123,21 @@ export function FilesPage({ itemPreferences = [], showQuickAccess = false, onOrg
 
     {!initialTrash && currentFolder && currentFolder.ownerId === userId && <button type="button" className="mt-3 min-h-11 rounded-lg px-3 text-sm text-accent hover:bg-accent-soft" onClick={() => setFolderAction({ folder: currentFolder, action: 'share' })}><ActionIcon name="share" />{copy.shareFolder}</button>}
     <div className="flex items-start gap-6">
-      <div ref={grid} className="min-w-0 flex-1 py-6" aria-busy={isLoading}>
+      <div ref={grid} className="min-w-0 flex-1 py-4" aria-busy={isLoading}>
         {toolbar}
-        <div className="mb-5 flex justify-end"><label className="flex items-center gap-2 text-xs text-muted">{copy.sortBy}<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as SortOrder)} className="min-h-10 rounded-lg border border-line bg-raised px-3 text-ink">{(['nameAsc', 'nameDesc', 'modifiedDesc', 'modifiedAsc', 'sizeDesc', 'sizeAsc'] as const).map((order) => <option key={order} value={order}>{copy[order]}</option>)}</select></label></div>
+        <div className="mb-1 flex justify-end"><label className="flex items-center gap-2 text-xs text-muted">{copy.sortBy}<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as SortOrder)} className="min-h-10 rounded-lg border border-line bg-raised px-3 text-ink">{(listView ? ['sizeDesc', 'sizeAsc'] as const : ['nameAsc', 'nameDesc', 'modifiedDesc', 'modifiedAsc', 'sizeDesc', 'sizeAsc'] as const).map((order) => <option key={order} value={order}>{copy[order]}</option>)}</select></label></div>
         {initialTrash && trash.length > 0 && <div className="mb-5 flex justify-end"><button type="button" className="min-h-10 rounded-xl border border-line px-4 text-xs font-semibold text-status hover:bg-raised" onClick={() => setEmptying(true)}>{copy.emptyTrashAction}</button></div>}
         {notice && <p role="status" className="mb-5 rounded-xl border border-line bg-raised p-4 text-sm text-muted">{notice}</p>}
         {isLoading ? <div role="status" aria-label={copy.loadingFiles} className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">{Array.from({ length: 8 }, (_, index) => <div key={index} className="animate-pulse overflow-hidden rounded-2xl border border-line bg-raised motion-reduce:animate-none"><div className="aspect-[4/3] bg-line/40" /><div className="space-y-3 p-4"><div className="h-3 w-3/4 rounded bg-line" /><div className="h-2 w-1/2 rounded bg-line/60" /></div></div>)}</div> : <>
-          {!initialTrash && folders.length > 0 && <section className="mb-9 border-b border-line pb-9" aria-labelledby="folders-heading">
-            <h2 id="folders-heading" className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted">{copy.folderSection}</h2>
+          {!initialTrash && folders.length > 0 && <CollapsibleSection id="folders-heading" label={foldersLabel ?? copy.folderSection} collapsible={collapsibleSections}>
             <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4 p-0">
               {shownFolders.map((folder) => <li data-entry={folder.id} key={folder.id} className="relative min-w-0 focus-within:z-40">
-                <div className={`group flex min-h-16 items-center rounded-xl border border-line bg-raised transition hover:border-accent hover:bg-accent-soft motion-reduce:transition-none ${dragging && dropFolderId === folder.id ? 'border-accent bg-accent-soft ring-2 ring-accent/40' : ''}`}>
+                <div data-selected={actionSelection === `folders:${folder.id}`} className={`group flex min-h-16 items-center rounded-xl border border-line bg-raised transition hover:border-accent hover:bg-accent-soft motion-reduce:transition-none ${actionSelection === `folders:${folder.id}` || dragging && dropFolderId === folder.id ? 'border-accent bg-accent-soft ring-2 ring-accent/40' : ''}`}>
                   <button type="button" data-upload-folder-id={folder.id} className="flex min-h-16 min-w-0 flex-1 items-center gap-3 rounded-xl px-4 text-left" onClick={() => onNavigate(folder.id)}>
                     <svg style={{ color: itemColors[preference('folders', folder.id)?.color ?? 'DEFAULT'] }} className="size-7 shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z" fill="currentColor" fillOpacity=".12" /></svg>
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">{folder.name}</span>{preference('folders', folder.id)?.starred && <span className="text-accent"><ActionIcon name="star" /></span>}
                   </button>
-                  <details className="relative mr-2 shrink-0" onKeyDown={(event) => {
-                    if (event.key === 'Escape') { event.currentTarget.removeAttribute('open'); event.currentTarget.querySelector('summary')?.focus(); }
-                  }}>
-                    <summary aria-label={`${copy.folderActions}: ${folder.name}`} className="grid size-9 cursor-pointer list-none place-items-center rounded-full text-xl text-muted hover:bg-accent-soft">⋮</summary>
-                    <div className="absolute right-0 z-30 mt-1 grid max-h-[70svh] w-60 gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 text-xs shadow-panel" onClick={(event) => closeMenu(event.currentTarget)}>
+                  <ActionMenu label={`${copy.folderActions}: ${folder.name}`} onSelect={() => selectAction('folders', folder.id)} onDismiss={dismissAction}>
                       <button type="button" className="flex min-h-10 items-center gap-3 rounded-lg px-3 text-left hover:bg-raised" onClick={() => onNavigate(folder.id)}><ActionIcon name="open" />{copy.openFile}</button>
                       {folder.permission !== 'READER' && <>
                         <button type="button" aria-label={`${copy.renameFolder}: ${folder.name}`} className="flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-raised" onClick={() => setFolderAction({ folder, action: 'rename' })}><ActionIcon name="rename" />{copy.renameFolder}</button>
@@ -145,33 +146,34 @@ export function FilesPage({ itemPreferences = [], showQuickAccess = false, onOrg
                       {onOrganize && <ItemOrganizeMenu preference={preference('folders', folder.id)} copy={copy} onUpdate={(patch) => onOrganize('folders', folder.id, patch)} />}
                       <button type="button" className="flex min-h-10 items-center gap-3 rounded-lg px-3 text-left hover:bg-raised" onClick={() => { setFolderDetails(folder); setSelected(null); }}><ActionIcon name="info" />{copy.folderDetails}</button>
                       {folder.permission !== 'READER' && <button type="button" aria-label={`${copy.deleteFolder}: ${folder.name}`} className="flex min-h-10 items-center gap-3 border-t border-line px-3 py-2 text-left text-status hover:bg-raised" onClick={() => setFolderAction({ folder, action: 'delete' })}><ActionIcon name="delete" />{copy.deleteFolder}</button>}
-                    </div>
-                  </details>
+                  </ActionMenu>
                 </div>
               </li>)}
             </ul>
-          </section>}
-          <section aria-labelledby="files-heading"><h2 id="files-heading" className="mb-4 text-xs font-semibold uppercase tracking-widest text-muted">{initialTrash ? copy.trashHeading : copy.filesHeading}</h2>
-            {!notice && shownFiles.length === 0 && <p className="rounded-xl border border-dashed border-line px-5 py-12 text-center text-sm text-muted"><span className="mx-auto mb-3 block size-12 text-accent" aria-hidden="true"><RoosterMark /></span>{initialTrash ? copy.emptyTrash : currentFolderId ? copy.emptyFolder : copy.emptyFiles}</p>}
-            <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4 p-0">{shownFiles.map((file) => <li data-entry={file.id} key={file.id} className="relative min-w-0 focus-within:z-40"><article className={`group relative rounded-2xl border bg-raised transition hover:border-accent-line hover:shadow-lg motion-reduce:transition-none ${selectedFile?.id === file.id ? 'border-accent ring-2 ring-accent/20' : 'border-line'}`}>
-              <div className="flex items-center gap-2 px-3 py-2"><span aria-hidden="true" style={{ color: itemColors[preference('files', file.id)?.color ?? 'DEFAULT'] }} className="text-[10px] font-bold uppercase text-accent">{file.name.split('.').pop()?.slice(0, 5)}</span><span className="min-w-0 flex-1 truncate text-xs font-semibold" title={file.name}>{file.name}</span>{preference('files', file.id)?.starred && <span className="text-accent"><ActionIcon name="star" /></span>}
-                <details className="relative shrink-0"><summary aria-label={`${copy.fileActions}: ${file.name}`} className="grid size-9 cursor-pointer list-none place-items-center rounded-full text-xl text-muted hover:bg-accent-soft">⋮</summary><div className="absolute right-0 z-30 mt-1 grid max-h-[70svh] w-60 gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 text-xs shadow-panel" onClick={(event) => closeMenu(event.currentTarget)}>
+          </CollapsibleSection>}
+          {(collapsibleSections ? [{ id: 'files-heading', label: filesLabel ?? copy.suggestedFiles, entries: shownFiles.filter((file) => !isVideo(file)) }, { id: 'videos-heading', label: copy.suggestedVideos, entries: shownFiles.filter(isVideo) }] : [{ id: 'files-heading', label: initialTrash ? copy.trashHeading : filesLabel ?? copy.filesHeading, entries: shownFiles }]).map((group) => <CollapsibleSection key={group.id} id={group.id} label={group.label} collapsible={collapsibleSections}>
+            {!notice && shownFiles.length === 0 && <p className="rounded-xl border border-dashed border-line px-5 py-12 text-center text-sm text-muted"><span className="mx-auto mb-3 block size-12 text-accent" aria-hidden="true"><RoosterMark /></span>{emptyLabel ?? (initialTrash ? copy.emptyTrash : currentFolderId ? copy.emptyFolder : collapsibleSections ? copy.emptySuggestions : copy.emptyFiles)}</p>}
+            {listView && <div className="mb-1 flex justify-between border-b border-line px-3 py-3 text-xs font-semibold text-muted"><span>{copy.fileName}</span><span className="w-28 text-right">{copy.fileSize}</span></div>}
+            <ul className={listView ? "list-none divide-y divide-line p-0" : "grid list-none grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4 p-0"}>{group.entries.map((file) => <li data-entry={file.id} key={file.id} className="relative min-w-0 focus-within:z-40"><article data-selected={selectedFile?.id === file.id || actionSelection === `files:${file.id}`} className={`group relative border bg-raised transition hover:border-accent-line motion-reduce:transition-none ${listView ? "flex items-center border-transparent" : "rounded-2xl hover:shadow-lg"} ${selectedFile?.id === file.id || actionSelection === `files:${file.id}` ? 'border-accent ring-2 ring-accent/20' : 'border-line'}`}>
+              <div className={`flex min-w-0 items-center gap-2 px-3 py-2 ${listView ? "flex-1" : ""}`}><span aria-hidden="true" style={{ color: itemColors[preference('files', file.id)?.color ?? 'DEFAULT'] }} className="text-[10px] font-bold uppercase text-accent">{file.name.split('.').pop()?.slice(0, 5)}</span><span className="min-w-0 flex-1 truncate text-xs font-semibold" title={file.name}>{listView ? <button type="button" className="truncate text-left" onClick={() => setSelected(file)}>{file.name}</button> : file.name}{file.deletedAt && <span className="ml-2 text-muted">{copy.inTrash}</span>}</span>{preference('files', file.id)?.starred && <span className="text-accent"><ActionIcon name="star" /></span>}
+                <ActionMenu label={`${copy.fileActions}: ${file.name}`} onSelect={() => selectAction('files', file.id)} onDismiss={dismissAction}>
                   {canOpen(file) && <><button type="button" className="flex min-h-10 items-center gap-3 rounded-lg px-3 text-left hover:bg-raised" onClick={() => setViewing(file)}><ActionIcon name="open" />{copy.openFile}</button><a className="flex min-h-10 items-center gap-3 rounded-lg px-3 hover:bg-raised" href={downloadUrl(file)}><ActionIcon name="download" />{copy.download}</a></>}
-                  {!initialTrash && file.permission !== 'READER' && <button type="button" className="flex min-h-10 items-center gap-3 rounded-lg px-3 text-left hover:bg-raised" onClick={() => { setEditMode('rename'); setEditing(file); }}><ActionIcon name="rename" />{copy.renameFile}</button>}
-                  {!initialTrash && (!file.permission || file.permission === 'OWNER') && <button type="button" className="flex min-h-10 items-center gap-3 border-t border-line px-3 text-left hover:bg-raised" onClick={() => { setEditMode('share'); setEditing(file); }}><ActionIcon name="share" />{copy.shareFile}</button>}
-                  {!initialTrash && onOrganize && <ItemOrganizeMenu preference={preference('files', file.id)} copy={copy} onUpdate={(patch) => onOrganize('files', file.id, patch)} />}
+                  {!initialTrash && !file.deletedAt && file.permission !== 'READER' && <button type="button" className="flex min-h-10 items-center gap-3 rounded-lg px-3 text-left hover:bg-raised" onClick={() => { setEditMode('rename'); setEditing(file); }}><ActionIcon name="rename" />{copy.renameFile}</button>}
+                  {!initialTrash && !file.deletedAt && (!file.permission || file.permission === 'OWNER') && <button type="button" className="flex min-h-10 items-center gap-3 border-t border-line px-3 text-left hover:bg-raised" onClick={() => { setEditMode('share'); setEditing(file); }}><ActionIcon name="share" />{copy.shareFile}</button>}
+                  {!initialTrash && !file.deletedAt && onOrganize && <ItemOrganizeMenu preference={preference('files', file.id)} copy={copy} onUpdate={(patch) => onOrganize('files', file.id, patch)} />}
+                  {file.deletedAt && !initialTrash && <Link href="/trash" className="flex min-h-10 items-center gap-3 px-3 text-accent">{copy.inTrash}</Link>}
                   <button type="button" className="flex min-h-10 items-center gap-3 rounded-lg px-3 text-left hover:bg-raised" onClick={() => { setSelected(file); setFolderDetails(null); }}><ActionIcon name="info" />{copy.fileDetails}</button>
                   {initialTrash && <button type="button" className="flex min-h-10 items-center gap-3 rounded-lg px-3 text-left text-accent hover:bg-raised" onClick={() => onRestore(file.id)}><ActionIcon name="open" />{copy.restoreFile}</button>}
-                  {file.permission !== 'READER' && <button type="button" className="flex min-h-10 items-center gap-3 border-t border-line px-3 text-left text-status hover:bg-raised" onClick={() => setDeleting(file)}><ActionIcon name="delete" />{initialTrash ? copy.deletePermanently : copy.deleteFile}</button>}
-                </div></details>
+                  {(initialTrash || !file.deletedAt) && file.permission !== 'READER' && <button type="button" className="flex min-h-10 items-center gap-3 border-t border-line px-3 text-left text-status hover:bg-raised" onClick={() => setDeleting(file)}><ActionIcon name="delete" />{initialTrash ? copy.deletePermanently : copy.deleteFile}</button>}
+                </ActionMenu>
               </div>
-              <button type="button" aria-label={`${copy.fileDetails}: ${file.name}`} aria-pressed={selectedFile?.id === file.id} onClick={() => setSelected(file)} onDoubleClick={() => { if (canOpen(file)) setViewing(file); }} className="block w-full rounded-b-2xl px-2 pb-3 text-left focus-visible:outline-2 focus-visible:outline-accent">
+              {listView ? <button type="button" className="min-h-12 w-28 shrink-0 px-3 text-right text-xs tabular-nums" onClick={() => setSelected(file)}>{formatFileSize(file.sizeBytes)}</button> : <button type="button" aria-label={`${copy.fileDetails}: ${file.name}`} aria-pressed={selectedFile?.id === file.id} onClick={() => setSelected(file)} onDoubleClick={() => { if (canOpen(file)) setViewing(file); }} className="block w-full rounded-b-2xl px-2 pb-3 text-left focus-visible:outline-2 focus-visible:outline-accent">
                 <span className="relative grid aspect-[4/3] place-items-center overflow-hidden rounded-xl bg-surface text-muted">{canOpen(file) && isImage(file) ? <img className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.025] motion-reduce:transform-none" src={previewUrl(file)} alt="" loading="lazy" /> : canOpen(file) && isVideo(file) ? <><video className="size-full object-cover" src={previewUrl(file)} muted playsInline preload="metadata" /><span className="absolute grid size-12 place-items-center rounded-full bg-black/50 text-xl text-white" aria-hidden="true">▷</span></> : <span className="grid justify-items-center gap-3 p-4"><span className="text-4xl text-accent" aria-hidden="true">▤</span><span className="break-all text-center text-xs">{file.status === 'AVAILABLE' ? file.contentType : file.status === 'FAILED' ? copy.fileFailed : copy.fileProcessing}</span></span>}</span>
                 <span className="block px-2 pt-3 text-[11px] text-muted">{formatFileSize(file.sizeBytes)} · {file.status === 'AVAILABLE' ? copy.fileReady : file.status === 'FAILED' ? copy.fileFailed : copy.fileProcessing}</span>
-              </button>
-              {title && file.ownerName && <div className="flex items-center gap-2 border-t border-line px-3 py-3 text-[11px] text-muted"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft font-semibold text-accent" aria-hidden="true">{file.ownerName.slice(0, 1)}</span><span className="min-w-0 truncate">{file.ownerName}{file.openedAt ? ' · ' + new Intl.DateTimeFormat(copy.socialLocale.replace('_', '-'), { dateStyle: 'short' }).format(new Date(file.openedAt)) : ''}</span></div>}
+              </button>}
+              {!listView && title && file.ownerName && <div className="flex items-center gap-2 border-t border-line px-3 py-3 text-[11px] text-muted"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft font-semibold text-accent" aria-hidden="true">{file.ownerName.slice(0, 1)}</span><span className="min-w-0 truncate">{file.ownerName}{file.openedAt ? ' · ' + new Intl.DateTimeFormat(copy.socialLocale.replace('_', '-'), { dateStyle: 'short' }).format(new Date(file.openedAt)) : ''}</span></div>}
             </article></li>)}</ul>
-          </section>
+          </CollapsibleSection>)}
         </>}
       </div>
       {folderDetails && <aside aria-label={copy.folderDetails} className="sticky top-6 mt-6 w-72 shrink-0 rounded-2xl border border-line bg-surface p-5 max-[1100px]:fixed max-[1100px]:inset-y-4 max-[1100px]:right-4 max-[1100px]:z-50 max-[1100px]:overflow-auto max-[420px]:w-[calc(100vw-90px)]">
@@ -182,7 +184,7 @@ export function FilesPage({ itemPreferences = [], showQuickAccess = false, onOrg
         <div className="mb-6 flex items-center justify-between"><h2 className="text-sm font-semibold">{copy.fileDetails}</h2><button type="button" aria-label={copy.closePanel} className="grid size-9 place-items-center rounded-full text-xl hover:bg-raised" onClick={() => setSelected(null)}>×</button></div>
         <div className="mb-5 grid aspect-[4/3] place-items-center overflow-hidden rounded-xl bg-raised text-5xl text-accent" aria-hidden="true">{isImage(selectedFile) && canOpen(selectedFile) ? <img src={previewUrl(selectedFile)} alt="" className="size-full object-contain" /> : '▤'}</div>
         <h3 className="mb-6 break-words text-sm font-semibold">{selectedFile.name}</h3>{selectedFile.ownerName && <p className="mb-5 text-xs text-muted">{copy.filterOwner}: {selectedFile.ownerName}</p>}<dl className="grid gap-5 text-xs"><div><dt className="mb-1 text-muted">{copy.fileType}</dt><dd className="break-all">{selectedFile.contentType}</dd></div><div><dt className="mb-1 text-muted">{copy.fileSize}</dt><dd>{formatFileSize(selectedFile.sizeBytes)}</dd></div><div><dt className="mb-1 text-muted">{copy.fileCreated}</dt><dd>{new Intl.DateTimeFormat(copy.socialLocale.replace('_', '-'), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(selectedFile.createdAt))}</dd></div></dl>
-        {canOpen(selectedFile) && <div className="mt-7 grid gap-2 border-t border-line pt-5"><button type="button" className="min-h-10 rounded-xl bg-accent-soft text-sm font-semibold text-accent" onClick={() => setViewing(selectedFile)}><ActionIcon name="open" />{copy.openFile}</button><a className="py-2 text-center text-xs text-accent" href={downloadUrl(selectedFile)}><ActionIcon name="download" />{copy.download}</a></div>}
+        {canOpen(selectedFile) && <div className="mt-7 grid gap-2 border-t border-line pt-5"><button type="button" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-accent-soft text-sm font-semibold text-accent" onClick={() => setViewing(selectedFile)}><ActionIcon name="open" />{copy.openFile}</button><a className="inline-flex min-h-10 items-center justify-center gap-2 py-2 text-xs text-accent" href={downloadUrl(selectedFile)}><ActionIcon name="download" />{copy.download}</a></div>}
       </aside>}
     </div>
     {folderAction && <FolderActionDialog key={`${folderAction.folder.id}-${folderAction.action}`} {...folderAction} copy={copy} onClose={() => setFolderAction(null)} onSaved={onChanged ?? (async () => undefined)} />}

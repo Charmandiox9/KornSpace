@@ -19,6 +19,15 @@ export interface LibraryFilters {
 export class FileLibraryService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async storage(userId: string) {
+    const records = await this.prisma.storedFile.findMany({ where: { ownerId: userId }, include: { folder: { select: { id: true, name: true } } }, orderBy: [{ sizeBytes: 'desc' }, { id: 'asc' }] });
+    return {
+      totalBytes: Number(records.reduce((sum, file) => sum + file.sizeBytes, 0n)),
+      trashBytes: Number(records.filter((file) => file.deletedAt).reduce((sum, file) => sum + file.sizeBytes, 0n)),
+      files: records.map((file) => ({ id: file.id, name: file.name, contentType: file.contentType, sizeBytes: Number(file.sizeBytes), status: file.status, checksum: file.checksum, createdAt: file.createdAt.toISOString(), updatedAt: file.updatedAt.toISOString(), deletedAt: file.deletedAt?.toISOString() ?? null, ownerId: userId, ownerName: '', folderId: file.folderId, folderName: file.folder?.name ?? null, permission: 'OWNER', openedAt: null })),
+    };
+  }
+
   async checkName(userId: string, value: string, folderId: string | null) {
     const name = validateFileName(value);
     if (folderId) userId = (await folderAccess(this.prisma, folderId, userId, true)).folder.ownerId;

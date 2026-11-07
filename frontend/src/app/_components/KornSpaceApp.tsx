@@ -11,6 +11,8 @@ import { useSession } from '@/features/auth/SessionProvider';
 import { UsernameSetupPage } from '@/features/auth/UsernameSetupPage';
 import { FilesPage } from '@/features/files/FilesPage';
 import { LibraryPage } from '@/features/files/LibraryPage';
+import { StarredPage } from '@/features/files/StarredPage';
+import { StoragePage } from '@/features/files/StoragePage';
 import { FileConflictDialog } from '@/features/files/FileConflictDialog';
 import { UploadNotifications } from '@/features/files/UploadNotifications';
 import { isStoredFile } from '@/features/files/is-stored-file';
@@ -26,7 +28,7 @@ import { getSessionDestination } from '@/features/auth/session-destination';
 import { sileo } from 'sileo';
 
 // Vistas del espacio de trabajo que comparten el shell con sidebar (todas viven bajo la ruta '/files' de sesión).
-const WORKSPACE_PATHS = ['/home', '/files', '/trash', '/shared'];
+const WORKSPACE_PATHS = ['/home', '/files', '/trash', '/shared', '/starred', '/storage'];
 
 function setMetaContent(attribute: 'name' | 'property', identifier: string, value: string): void {
   let element = document.head.querySelector<HTMLMetaElement>(`meta[${attribute}="${identifier}"]`);
@@ -375,7 +377,7 @@ export default function KornSpaceApp() {
   useEffect(() => {
     const readLocation = () => {
       if (pathname === '/files') setCurrentFolderId(new URLSearchParams(window.location.search).get('folderId'));
-      else if (pathname === '/home' || pathname === '/shared') setCurrentFolderId(null);
+      else if (WORKSPACE_PATHS.includes(pathname)) setCurrentFolderId(null);
     };
     readLocation();
     window.addEventListener('popstate', readLocation);
@@ -445,8 +447,12 @@ export default function KornSpaceApp() {
             onUsernameChange={setUsername}
             onSubmit={(event) => void saveUsername(event)}
           />
+        ) : pathname === '/starred' ? (
+          <StarredPage {...filePageProps} />
+        ) : pathname === '/storage' ? (
+          <StoragePage {...filePageProps} />
         ) : pathname === '/home' || pathname === '/shared' ? (
-          <LibraryPage {...filePageProps} sharedOnly={pathname === '/shared'} refreshKey={libraryVersion} />
+          <LibraryPage key={pathname} {...filePageProps} sharedOnly={pathname === '/shared'} refreshKey={libraryVersion} />
         ) : (
           <FilesPage {...filePageProps} />
         )}

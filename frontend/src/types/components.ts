@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from 'react';
 import type { AuthenticatedUser } from './auth';
-import type { StoredFile, StoredFolder, ItemPreference, ItemOrganizationPatch } from './files';
+import type { StoredFile, StoredFolder, ItemPreference, ItemOrganizationPatch, SortOrder } from './files';
 import type { TranslationCatalog } from './i18n';
 import type { Language, Theme } from './preferences';
 
@@ -116,6 +116,12 @@ export interface FolderActionDialogProps {
 }
 
 export interface FilesPageProps {
+  collapsibleSections?: boolean;
+  listView?: boolean;
+  initialSortOrder?: SortOrder;
+  foldersLabel?: string;
+  filesLabel?: string;
+  emptyLabel?: string;
   itemPreferences?: ItemPreference[];
   showQuickAccess?: boolean;
   onOrganize?: (kind: 'files' | 'folders', id: string, patch: ItemOrganizationPatch) => Promise<void>;

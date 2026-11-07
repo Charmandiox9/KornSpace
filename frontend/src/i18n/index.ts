@@ -2,6 +2,15 @@ import type { Language, Theme, TranslationCatalog } from '../types';
 
 export const translations = {
   es: {
+    suggestedFolders: 'Carpetas sugeridas',
+    emptyStarred: 'Añade archivos o carpetas a Destacados desde el menú Organizar para encontrarlos aquí.',
+    emptySuggestions: 'Abre archivos desde Mi Unidad para ver sugerencias aquí.',
+    suggestedFiles: 'Archivos sugeridos',
+    suggestedVideos: 'Vídeos sugeridos',
+    storageHeading: 'Almacenamiento',
+    storageTotal: 'Total utilizado',
+    storageScope: 'Archivos propios, incluida la papelera. No incluye archivos que otras personas te comparten ni cargas temporales.',
+    inTrash: 'En la papelera',
     systemReducedMotion: 'Movimiento reducido según tu sistema',
     reduceAnimations: 'Reducir animaciones',
     enableAnimations: 'Activar animaciones',
@@ -237,6 +246,15 @@ export const translations = {
     retryUpload: 'Reintentar carga',
   },
   en: {
+    suggestedFolders: 'Suggested folders',
+    emptyStarred: 'Star files or folders from the Organize menu to find them here.',
+    emptySuggestions: 'Open files from My Drive to see suggestions here.',
+    suggestedFiles: 'Suggested files',
+    suggestedVideos: 'Suggested videos',
+    storageHeading: 'Storage',
+    storageTotal: 'Total used',
+    storageScope: 'Your own files, including trash. Excludes files others share with you and temporary uploads.',
+    inTrash: 'In trash',
     systemReducedMotion: 'Reduced motion follows your system',
     reduceAnimations: 'Reduce animations',
     enableAnimations: 'Enable animations',

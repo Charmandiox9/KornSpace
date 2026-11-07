@@ -4,6 +4,10 @@ import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import { ForbiddenException, NotFoundException, ServiceUnavailableException, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { GraphQLModule, GqlExecutionContext } from '@nestjs/graphql';
+import { ApolloDriver, type ApolloDriverConfig } from '@nestjs/apollo';
+import type { ExecutionContext } from '@nestjs/common';
+import { FileLibraryResolver } from '../src/files/file-library.resolver';
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { SQSClient } from '@aws-sdk/client-sqs';
@@ -225,4 +229,29 @@ test('sharing rejects ambiguous emails and a changed confirmation target without
   assert.equal(h.grants.has(target.id), false);
   h.recipients.push({ ...target, id: '55555555-5555-4555-8555-555555555555', username: 'otherperson' });
   await assert.rejects(h.library.resolveRecipient(h.file.id, 'owner', target.email), NotFoundException);
+});
+
+
+test('storage GraphQL counts only owned metadata including trash and rejects anonymous access', async () => {
+  const h = harness();
+  h.records.push({ ...h.file, id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', sizeBytes: 9n, deletedAt: new Date() });
+  h.records.push({ ...h.file, id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', ownerId: 'other', sizeBytes: 99n });
+  const module = await Test.createTestingModule({
+    imports: [GraphQLModule.forRoot<ApolloDriverConfig>({ driver: ApolloDriver, autoSchemaFile: true, context: ({ req }: { req: { headers: Record<string, string | undefined> } }) => ({ req: { authContext: req.headers['x-test-user'] ? { userId: req.headers['x-test-user'] } : undefined } }) })],
+    providers: [FileLibraryResolver, { provide: FileLibraryService, useValue: h.library }],
+  }).overrideGuard(SessionJwtGuard).useValue({ canActivate: (context: ExecutionContext) => Boolean(GqlExecutionContext.create(context).getContext<{ req: { authContext?: { userId: string } } }>().req.authContext) }).compile();
+  const app = module.createNestApplication(); await app.listen(0, '127.0.0.1');
+  const address = app.getHttpServer().address() as AddressInfo;
+  async function query(userId?: string) {
+    const response = await fetch(`http://127.0.0.1:${address.port}/graphql`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(userId ? { 'x-test-user': userId } : {}) }, body: JSON.stringify({ query: '{ storageUsage { totalBytes trashBytes files { id ownerId deletedAt sizeBytes } } }' }) });
+    return response.json() as Promise<{ data?: { storageUsage: { totalBytes: number; trashBytes: number; files: { id: string; ownerId: string }[] } }; errors?: unknown[] }>;
+  }
+  try {
+    assert.ok((await query()).errors?.length);
+    const owned = (await query('owner')).data!.storageUsage;
+    assert.equal(owned.totalBytes, 13); assert.equal(owned.trashBytes, 9); assert.equal(owned.files.length, 2);
+    assert.ok(owned.files.every((file) => file.ownerId === 'owner'));
+    assert.deepEqual((await query('reader')).data!.storageUsage, { totalBytes: 0, trashBytes: 0, files: [] });
+    assert.equal((await query('other')).data!.storageUsage.totalBytes, 99);
+  } finally { await app.close(); }
 });

@@ -35,10 +35,19 @@ class LibraryFile {
   @Field(() => String, { nullable: true }) openedAt!: string | null;
 }
 
+@ObjectType()
+class StorageUsage {
+  @Field(() => Float) totalBytes!: number;
+  @Field(() => Float) trashBytes!: number;
+  @Field(() => [LibraryFile]) files!: LibraryFile[];
+}
+
 @Resolver()
 @UseGuards(SessionJwtGuard)
 export class FileLibraryResolver {
   constructor(private readonly library: FileLibraryService) {}
+  @Query(() => StorageUsage)
+  storageUsage(@Context('req') request: AuthenticatedRequest) { return this.library.storage(request.authContext!.userId); }
   @Query(() => [LibraryFile])
   fileLibrary(@Context('req') request: AuthenticatedRequest, @Args('filters', { nullable: true }) filters?: LibraryFiltersInput) {
     return this.library.browse(request.authContext!.userId, filters);
