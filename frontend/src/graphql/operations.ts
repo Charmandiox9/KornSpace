@@ -12,9 +12,8 @@ export const FILE_LIBRARY_QUERY = `query FileLibrary($shared: Boolean!) {
     id name description contentType sizeBytes status checksum createdAt updatedAt deletedAt
     ownerId ownerName folderId folderName permission openedAt
   }
-  recent: fileLibrary(filters: { recent: true, shared: $shared }) {
-    id name description contentType sizeBytes status checksum createdAt updatedAt deletedAt
-    ownerId ownerName folderId folderName permission openedAt
+  folderContents(includeFiles: false) {
+    folders { id name description storageBytes ownerId parentId createdAt updatedAt permission }
   }
 }`;
 

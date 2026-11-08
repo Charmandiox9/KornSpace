@@ -15,8 +15,8 @@ export class FoldersResolver {
   @Query(() => FolderContentsEntity)
   folderContents(
     @Context('req') request: AuthenticatedRequest,
-    @Args() { parentId }: FolderContentsDto,
+    @Args() { parentId, includeFiles }: FolderContentsDto,
   ): Promise<FolderContentsResponse> {
-    return this.folders.listContents(request.authContext!.userId, parentId ?? null);
+    return this.folders.listContents(request.authContext!.userId, parentId ?? null, includeFiles ?? true);
   }
 }

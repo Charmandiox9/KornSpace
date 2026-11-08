@@ -1,3 +1,4 @@
+import { moveResource } from '../common/move-resource';
 import { BadRequestException, HttpException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import type { Folder, StoredFile, FileRole } from '@prisma/client';
 import { folderAccess, folderPermissionRows, inheritedFolderRole, strongestRole, type ResourcePermission } from './folder-policy';
@@ -39,6 +40,10 @@ function toFileResponse(file: StoredFile): StoredFileResponse {
 @Injectable()
 export class FoldersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  move(id: string, userId: string, destinationId: string | null): Promise<void> {
+    return moveResource(this.prisma, 'folders', id, userId, destinationId);
+  }
 
   private async accessible(prisma: Pick<PrismaService, 'folder' | 'folderPermission'>, id: string, userId: string, ownerOnly = false): Promise<Folder> {
     return (await folderAccess(prisma, id, userId, !ownerOnly, ownerOnly)).folder;
@@ -168,7 +173,7 @@ export class FoldersService {
     }
   }
 
-  async listContents(ownerId: string, parentId: string | null): Promise<FolderContentsResponse> {
+  async listContents(ownerId: string, parentId: string | null, includeFiles = true): Promise<FolderContentsResponse> {
     let folder: Folder | null = null;
     if (parentId) {
       try {
@@ -184,15 +189,18 @@ export class FoldersService {
     try {
       const [children, storedFiles] = await Promise.all([
         this.prisma.folder.findMany({ where: { ownerId: contentOwnerId, parentId }, orderBy: { name: 'asc' } }),
-        this.prisma.storedFile.findMany({ where: { ownerId: contentOwnerId, folderId: parentId, deletedAt: null }, include: { owner: { select: { name: true, email: true } }, permissions: { where: { userId: ownerId } }, visits: { where: { userId: ownerId }, select: { openedAt: true } } }, orderBy: { createdAt: 'desc' } }),
+        includeFiles ? this.prisma.storedFile.findMany({ where: { ownerId: contentOwnerId, folderId: parentId, deletedAt: null }, include: { owner: { select: { name: true, email: true } }, permissions: { where: { userId: ownerId } }, visits: { where: { userId: ownerId }, select: { openedAt: true } } }, orderBy: { createdAt: 'desc' } }) : Promise.resolve([]),
       ]);
 
       const shared = parentId === null ? await this.prisma.folderPermission.findMany({ where: { userId: ownerId }, include: { folder: true } }) : [];
+      const visibleChildren = [...new Map([...children, ...shared.map((grant) => grant.folder)].map((child) => [child.id, child])).values()];
+      const storageBytes = await this.getStorageBytesByFolder(visibleChildren);
+      const inheritedRole = contentOwnerId !== ownerId && parentId ? await inheritedFolderRole(this.prisma, parentId, ownerId) : null;
       return {
         folder: folder ? { ...toFolderResponse(folder), permission: (await folderAccess(this.prisma, folder.id, ownerId)).role } : null,
         breadcrumbs: await this.getBreadcrumbs(ownerId, folder),
-        folders: await Promise.all([...children, ...shared.map((grant) => grant.folder)].map(async (child) => ({ ...toFolderResponse(child), storageBytes: await this.folderStorageBytes(child.id), permission: (await folderAccess(this.prisma, child.id, ownerId)).role }))),
-        files: await Promise.all(storedFiles.map(async (file) => ({ ...toFileResponse(file), ownerId: file.ownerId, ownerName: file.owner?.name ?? file.owner?.email ?? '', folderId: file.folderId, folderName: folder?.name ?? null, openedAt: file.visits[0]?.openedAt.toISOString() ?? null, permission: file.ownerId === ownerId ? 'OWNER' as const : strongestRole(file.permissions[0]?.role ?? null, parentId ? await inheritedFolderRole(this.prisma, parentId, ownerId) : null) ?? 'READER' as const }))),
+        folders: await Promise.all(visibleChildren.map(async (child) => ({ ...toFolderResponse(child), storageBytes: storageBytes.get(child.id) ?? 0, permission: child.ownerId === ownerId ? 'OWNER' as const : (await folderAccess(this.prisma, child.id, ownerId)).role }))),
+        files: await Promise.all(storedFiles.map(async (file) => ({ ...toFileResponse(file), ownerId: file.ownerId, ownerName: file.owner?.name ?? file.owner?.email ?? '', folderId: file.folderId, folderName: folder?.name ?? null, openedAt: file.visits[0]?.openedAt.toISOString() ?? null, permission: file.ownerId === ownerId ? 'OWNER' as const : strongestRole(file.permissions[0]?.role ?? null, inheritedRole) ?? 'READER' as const }))),
       };
     } catch (error: unknown) {
       if (error instanceof NotFoundException || error instanceof ServiceUnavailableException) throw error;
@@ -218,13 +226,42 @@ export class FoldersService {
     return ancestors.map(toFolderResponse);
   }
 
-  private async folderStorageBytes(folderId: string): Promise<number> {
-    const ids = [folderId];
-    for (let index = 0; index < ids.length; index += 1) {
-      const children = await this.prisma.folder.findMany({ where: { parentId: ids[index] }, select: { id: true } });
-      ids.push(...children.map((child) => child.id));
+  private async getStorageBytesByFolder(roots: Folder[]): Promise<Map<string, number>> {
+    if (roots.length === 0) return new Map();
+    const ownerIds = [...new Set(roots.map((folder) => folder.ownerId))];
+    const folders = roots.map(({ id, ownerId, parentId }) => ({ id, ownerId, parentId }));
+    let frontier = roots.map(({ id, ownerId }) => ({ id, ownerId }));
+    const discoveredIds = new Set<string>();
+    while (frontier.length > 0) {
+      const discovered = await this.prisma.folder.findMany({ where: { ownerId: { in: ownerIds }, parentId: { in: frontier.map((folder) => folder.id) } }, select: { id: true, ownerId: true, parentId: true } });
+      const parents = new Map(frontier.map((folder) => [folder.id, folder.ownerId]));
+      const descendants = discovered.filter((folder) => parents.get(folder.parentId ?? '') === folder.ownerId && !discoveredIds.has(folder.id));
+      descendants.forEach((folder) => discoveredIds.add(folder.id));
+      folders.push(...descendants);
+      frontier = descendants.map(({ id, ownerId }) => ({ id, ownerId }));
     }
-    const usage = await this.prisma.storedFile.aggregate({ where: { folderId: { in: ids }, deletedAt: null }, _sum: { sizeBytes: true } });
-    return Number(usage._sum.sizeBytes ?? 0n);
+    const folderIds = folders.map((folder) => folder.id);
+    const fileSizes = await this.prisma.storedFile.groupBy({ by: ['folderId'], where: { ownerId: { in: ownerIds }, deletedAt: null, folderId: { in: folderIds } }, _sum: { sizeBytes: true } });
+    const childrenByParent = new Map<string, string[]>();
+    const folderOwner = new Map<string, string>();
+    for (const folder of folders) {
+      folderOwner.set(folder.id, folder.ownerId);
+      if (folder.parentId) childrenByParent.set(folder.parentId, [...(childrenByParent.get(folder.parentId) ?? []), folder.id]);
+    }
+    const bytesByFolder = new Map<string, number>();
+    for (const row of fileSizes) if (row.folderId) bytesByFolder.set(row.folderId, Number(row._sum.sizeBytes ?? 0n));
+    const totals = new Map<string, number>();
+    const active = new Set<string>();
+    const totalFor = (id: string, ownerId: string): number => {
+      const cached = totals.get(id);
+      if (cached !== undefined) return cached;
+      if (active.has(id) || folderOwner.get(id) !== ownerId) return 0;
+      active.add(id);
+      const total = (bytesByFolder.get(id) ?? 0) + (childrenByParent.get(id) ?? []).reduce((sum, childId) => sum + totalFor(childId, ownerId), 0);
+      active.delete(id);
+      totals.set(id, total);
+      return total;
+    };
+    return new Map(roots.map((folder) => [folder.id, totalFor(folder.id, folder.ownerId)]));
   }
 }

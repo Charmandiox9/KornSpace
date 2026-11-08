@@ -17,6 +17,9 @@ interface FolderRecord {
 function createHarness() {
   const folders: FolderRecord[] = [];
   const files: Array<Record<string, unknown>> = [];
+  let hierarchyQueries = 0;
+  let storageQueries = 0;
+  let fileListQueries = 0;
   let nextId = 0;
   const prisma = {
     folderPermission: { findMany: async () => [], findUnique: async () => null },
@@ -26,8 +29,15 @@ function createHarness() {
       findUnique: async ({ where }: { where: { id: string } }) => folders.find((folder) => folder.id === where.id) ?? null,
       findFirst: async ({ where }: { where: { id: string; ownerId: string } }) =>
         folders.find((folder) => folder.id === where.id && folder.ownerId === where.ownerId) ?? null,
-      findMany: async ({ where }: { where: { ownerId: string; parentId: string | null } }) =>
-        folders.filter((folder) => folder.ownerId === where.ownerId && folder.parentId === where.parentId),
+      findMany: async ({ where }: { where: { ownerId: string | { in: string[] }; parentId?: string | null | { in: string[] } } }) => {
+        if (where.parentId !== null && typeof where.parentId === 'object') {
+          hierarchyQueries += 1;
+          const ownerFilter = where.ownerId;
+          const parentFilter = where.parentId;
+          return folders.filter((folder) => typeof ownerFilter !== 'string' && ownerFilter.in.includes(folder.ownerId) && parentFilter.in.includes(folder.parentId ?? '')).map(({ id, ownerId, parentId }) => ({ id, ownerId, parentId }));
+        }
+        return folders.filter((folder) => folder.ownerId === where.ownerId && folder.parentId === where.parentId);
+      },
       // Storage usage performs a separate descendant query without ownerId.
       create: async ({ data }: { data: Omit<FolderRecord, 'id' | 'createdAt' | 'updatedAt'> }) => {
         if (folders.some((folder) => folder.ownerId === data.ownerId && folder.parentId === data.parentId && folder.name === data.name)) {
@@ -40,16 +50,21 @@ function createHarness() {
       },
     },
     storedFile: {
-      findMany: async ({ where }: { where: { ownerId: string; folderId: string | null; deletedAt: null } }) =>
-        files.filter((file) => file.ownerId === where.ownerId && file.folderId === where.folderId && file.deletedAt === null).map((file) => ({ ...file, description: null, updatedAt: file.createdAt, owner: { name: 'Owner', email: 'owner@example.test' }, permissions: [], visits: [] })),
-      aggregate: async () => ({ _sum: { sizeBytes: null } }),
+      findMany: async ({ where }: { where: { ownerId: string; folderId: string | null; deletedAt: null } }) => {
+        fileListQueries += 1;
+        return files.filter((file) => file.ownerId === where.ownerId && file.folderId === where.folderId && file.deletedAt === null).map((file) => ({ ...file, description: null, updatedAt: file.createdAt, owner: { name: 'Owner', email: 'owner@example.test' }, permissions: [], visits: [] }));
+      },
+      groupBy: async () => {
+        storageQueries += 1;
+        return files.filter((file) => file.folderId && file.deletedAt === null).map((file) => ({ folderId: file.folderId, _sum: { sizeBytes: file.sizeBytes as bigint } }));
+      },
     },
   } as unknown as PrismaService;
-  return { service: new FoldersService(prisma), folders, files };
+  return { service: new FoldersService(prisma), folders, files, getFileListQueries: () => fileListQueries, getStorageQueryCounts: () => ({ hierarchyQueries, storageQueries }) };
 }
 
 test('FoldersService creates root and nested folders and returns direct contents with breadcrumbs', async () => {
-  const { service, files } = createHarness();
+  const { service, files, getStorageQueryCounts } = createHarness();
   const root = await service.create('owner-1', ' Projects ', null);
   const child = await service.create('owner-1', 'Drafts', root.id);
   const grandchild = await service.create('owner-1', 'Archive', child.id);
@@ -62,10 +77,14 @@ test('FoldersService creates root and nested folders and returns direct contents
   const childContents = await service.listContents('owner-1', child.id);
   assert.deepEqual(rootContents.folders.map((folder) => folder.name), ['Projects']);
   assert.deepEqual(rootContents.files, []);
+  assert.equal(rootContents.folders[0]?.storageBytes, 4);
   assert.equal(childContents.folder?.id, child.id);
   assert.deepEqual(childContents.breadcrumbs.map((folder) => folder.id), [root.id]);
   assert.deepEqual(childContents.folders.map((folder) => folder.id), [grandchild.id]);
   assert.deepEqual(childContents.files.map((file) => file.name), ['plan.txt']);
+  const queryCounts = getStorageQueryCounts();
+  assert.equal(queryCounts.hierarchyQueries, 4);
+  assert.equal(queryCounts.storageQueries, 2);
 });
 
 test('FoldersService isolates owners and rejects missing parents, invalid names, and duplicate sibling names', async () => {
@@ -79,6 +98,19 @@ test('FoldersService isolates owners and rejects missing parents, invalid names,
   await assert.rejects(service.create('owner-1', ' bad/name ', null), BadRequestException);
   await assert.rejects(service.create('owner-1', 'Lost', 'missing-folder'), NotFoundException);
   assert.equal((await service.listContents('owner-1', null)).folders[0]?.id, ownParent.id);
+});
+
+test('folder storage is fetched in a fixed number of grouped queries regardless of visible folder count', async () => {
+  const { service, files, getStorageQueryCounts } = createHarness();
+  const root = await service.create('owner-1', 'Root', null);
+  for (let index = 0; index < 12; index += 1) await service.create('owner-1', `Folder ${index}`, root.id);
+  files.push({ folderId: 'folder-2', ownerId: 'owner-1', sizeBytes: 7n, deletedAt: null });
+  const result = await service.listContents('owner-1', null);
+  assert.equal(result.folders.length, 1);
+  const nested = await service.listContents('owner-1', root.id);
+  assert.equal(nested.folders.length, 12);
+  assert.ok(nested.folders.every((folder) => folder.storageBytes === 7 || folder.storageBytes === 0));
+  assert.deepEqual(getStorageQueryCounts(), { hierarchyQueries: 3, storageQueries: 2 });
 });
 
 
@@ -187,4 +219,44 @@ test('sharing lists direct and inherited users with their source and rejects cyc
   await assert.rejects(h.library.listPermissions(h.fileId, 'reader'), NotFoundException);
   h.folders[0].parentId = h.childId;
   await assert.rejects(h.service.listContents('reader', h.childId), ServiceUnavailableException);
+});
+
+test('owners can inspect permissions for trashed files while other users cannot', async () => {
+  const { inheritanceHarness } = await import('./permission-inheritance.harness');
+  const h = inheritanceHarness();
+  h.files[0].deletedAt = new Date('2026-11-08T00:00:00Z');
+  h.fileGrants.set('peer', 'READER');
+  const permissions = await h.library.listPermissions(h.fileId, 'owner');
+  assert.equal(permissions[0]?.userId, 'peer');
+  await assert.rejects(h.library.listPermissions(h.fileId, 'peer'), NotFoundException);
+});
+
+
+test('library resolves inherited folder permissions once for files sharing a folder', async () => {
+  const { inheritanceHarness } = await import('./permission-inheritance.harness');
+  const h = inheritanceHarness();
+  h.folderGrants.set(h.rootId + ':peer', 'READER');
+  h.files.push({ ...h.files[0], id: 'second-file' });
+  let calls = 0;
+  const original = h.prisma.folderPermission.findUnique.bind(h.prisma.folderPermission);
+  h.prisma.folderPermission.findUnique = ((...args: Parameters<typeof original>) => {
+    calls += 1;
+    return original(...args);
+  }) as unknown as typeof original;
+  const files = await h.library.browse('peer');
+  assert.equal(files.length, 2);
+  assert.ok(files.every((file) => file.permission === 'READER'));
+  assert.equal(calls, 2);
+});
+
+
+test('folder-only metadata skips file listing while retaining folder authorization', async () => {
+  const h = createHarness();
+  await h.service.create('owner', 'Root', null);
+  const result = await h.service.listContents('owner', null, false);
+  assert.equal(result.folders.length, 1);
+  assert.deepEqual(result.files, []);
+  assert.equal(h.getFileListQueries(), 0);
+  const foreign = await h.service.create('other', 'Private', null);
+  await assert.rejects(h.service.listContents('owner', foreign.id, false), NotFoundException);
 });

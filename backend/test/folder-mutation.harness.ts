@@ -13,7 +13,12 @@ export function folderMutationHarness() {
     user: { findUnique: async () => ({ name: 'Owner', email: 'owner@example.test' }), findMany: async () => [{ id: editorId }] },
     resourceActivity: { create: async () => ({}), updateMany: async () => ({ count: 0 }), findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
     folder: {
-      findMany: async ({ where }: { where: { ownerId: string; parentId: string | null } }) => folders.filter((folder) => folder.ownerId === where.ownerId && folder.parentId === where.parentId),
+      findMany: async ({ where }: { where: { ownerId?: string | { in: string[] }; parentId?: string | null | { in: string[] } } }) => {
+        if (typeof where.parentId !== 'object' || where.parentId === null) return folders.filter((folder) => folder.ownerId === where.ownerId && folder.parentId === where.parentId);
+        const ownerFilter = where.ownerId;
+        const parentFilter = where.parentId;
+        return folders.filter((folder) => typeof ownerFilter !== 'string' && ownerFilter !== undefined && ownerFilter.in.includes(folder.ownerId) && parentFilter.in.includes(folder.parentId ?? '')).map(({ id, ownerId, parentId }) => ({ id, ownerId, parentId }));
+      },
       findUnique: async ({ where }: { where: { id: string } }) => folders.find((folder) => folder.id === where.id) ?? null,
       findFirst: async ({ where }: { where: { parentId: string } }) => folders.find((folder) => folder.parentId === where.parentId) ?? null,
       update: async ({ where, data }: { where: { id: string }; data: { name: string } }) => {
@@ -27,7 +32,7 @@ export function folderMutationHarness() {
         const removed = folders.splice(index, 1)[0]; editors.clear(); return removed;
       },
     },
-    storedFile: { findMany: async () => [], findFirst: async ({ where }: { where: { folderId: string } }) => files.find((file) => file.folderId === where.folderId) ?? null, aggregate: async () => ({ _sum: { sizeBytes: null } }) },
+    storedFile: { findMany: async () => [], findFirst: async ({ where }: { where: { folderId: string } }) => files.find((file) => file.folderId === where.folderId) ?? null, groupBy: async () => [], aggregate: async () => ({ _sum: { sizeBytes: null } }) },
     folderPermission: {
       updateMany: async ({ where, data }: { where: { userId: string }; data: { role: FileRole } }) => { if (!editors.has(where.userId)) return { count: 0 }; editors.set(where.userId, data.role); return { count: 1 }; },
       findMany: async ({ where }: { where: { folderId?: string; userId?: string } }) => Array.from(editors.keys()).filter((userId) => !where.userId || where.userId === userId).map((userId) => ({ userId, role: editors.get(userId), folderId, folder: folders[0], user: { email: 'editor@example.test', username: 'editor' } })),

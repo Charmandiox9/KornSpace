@@ -186,6 +186,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
             const folderId = graphQLRequest.variables?.parentId ?? null;
             const folderView = (folder) => forceReaderPresentation ? { ...folder, permission: 'READER' } : { ...folder, permission: 'OWNER' };
             body = { data: { folderContents: { folder: folderId ? folderView(dropFolder) : null, breadcrumbs: [], folders: folderId ? [] : [folderView(dropFolder), ...(emptyFolderExists ? [folderView(emptyFolder)] : [])], files: records.filter(record => (record.folderId ?? null) === folderId).map(file => forceReaderPresentation ? { ...file, permission: 'READER' } : file) } } };
+            if (query.includes('all: fileLibrary')) body.data.all = records;
           } else if (query.includes('storageUsage')) {
             body = { data: { storageUsage: { totalBytes: own.reduce((sum, file) => sum + file.sizeBytes, 0), trashBytes: own.filter(file => file.deletedAt).reduce((sum, file) => sum + file.sizeBytes, 0), files: own } } };
           } else body = { data: { all: records, recent: records.filter(file => file.openedAt) } };
@@ -289,6 +290,17 @@ test('session navigation and multiple uploads in a real browser with a simulated
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: "localStorage.setItem('kornspace-language', 'es'); localStorage.setItem('kornspace-theme', 'dark');" });
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
     await cdp.send('Fetch.enable', { patterns: [{ urlPattern: `${origin}/api/*` }, { urlPattern: `${origin}/graphql` }] });
+
+    if (process.env.PERFORMANCE_SMOKE === '1') {
+      records.push({ id: 'perf-file', name: 'performance.txt', contentType: 'text/plain', sizeBytes: 4, status: 'AVAILABLE', checksum: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', ownerId: user.id, ownerName: user.name, folderId: null, folderName: null, openedAt: '2026-01-02T00:00:00.000Z', permission: 'OWNER' });
+      await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.partialLibraryPaint = false; new MutationObserver(() => { if (document.querySelector('[data-entry="perf-file"]') && !document.querySelector('[data-entry="drop-target"]')) window.partialLibraryPaint = true; }).observe(document, { childList: true, subtree: true });` });
+      await cdp.send('Page.navigate', { url: `${origin}/home` });
+      await until(() => evaluate(`Boolean(document.querySelector('[data-entry="perf-file"]')) && Boolean(document.querySelector('[data-entry="drop-target"]'))`), 'atomic home snapshot');
+      assert.equal(await evaluate('window.partialLibraryPaint'), false);
+      assert.equal(listChecks, 1, 'one combined metadata request on initial home load');
+      assert.deepEqual(interceptionErrors, []);
+      return;
+    }
 
     await t.test('keeps one session check across 404, home, login redirect and files; reload checks again', async () => {
       await cdp.send('Page.navigate', { url: `${origin}/unknown-page` });

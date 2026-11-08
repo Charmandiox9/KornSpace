@@ -84,14 +84,19 @@ export default function KornSpaceApp() {
   const { enabled: motionEnabled } = useMotionPreferences();
   useAppMotion(motionRoot, `${pathname}:${currentFolderId ?? 'root'}`, motionEnabled);
   const refreshVersion = useRef(0);
+  const hasLoadedFiles = useRef(false);
   const copy = translations[language];
-  const { preferences: itemPreferences, updatePreference: onOrganize } = useItemPreferences(user?.id, copy.organizationError, libraryVersion);
+  const { preferences: itemPreferences, updatePreference: onOrganize } = useItemPreferences(user?.id, copy.organizationError);
   const route = getSessionDestination(authStatus, Boolean(user?.username));
 
-  const refreshFiles = useCallback(async (includeTrash = true, folderId: string | null = currentFolderId): Promise<void> => {
+  const refreshFiles = useCallback(async (includeTrash = false, folderId: string | null = currentFolderId): Promise<void> => {
     if (!user?.id) return;
+    if (pathname === '/home' || pathname === '/shared') {
+      setLibraryVersion((value) => value + 1);
+      return;
+    }
     const version = ++refreshVersion.current;
-    setIsLoadingFiles(true);
+    if (!hasLoadedFiles.current) setIsLoadingFiles(true);
     setNotice('');
     try {
       const filesPayload = await fetchFolderContents(folderId);
@@ -103,6 +108,7 @@ export default function KornSpaceApp() {
         if (!Array.isArray(trashPayload) || !trashPayload.every(isStoredFile)) throw new Error(copy.loadError);
       }
       if (version === refreshVersion.current) {
+        hasLoadedFiles.current = true;
         setLibraryVersion((value) => value + 1);
         setFiles(filesPayload.files);
         setFolders(filesPayload.folders);
@@ -113,9 +119,14 @@ export default function KornSpaceApp() {
     } catch {
       if (version === refreshVersion.current) setNotice(copy.loadError);
     } finally {
-      if (version === refreshVersion.current) setIsLoadingFiles(false);
+      if (version === refreshVersion.current) {
+        hasLoadedFiles.current = true;
+        setIsLoadingFiles(false);
+      }
     }
-  }, [copy.loadError, currentFolderId, user?.id]);
+  }, [copy.loadError, currentFolderId, pathname, user?.id]);
+  const refreshFilesRef = useRef(refreshFiles);
+  refreshFilesRef.current = refreshFiles;
   const { queue, enqueue, cancelItem, retryItem, conflict, resolveConflict } = useUploadQueue((folderId) => folderId === currentFolderId ? refreshFiles(false, folderId) : Promise.resolve(), user?.id);
   async function mutateFile(path: string, method: 'POST' | 'DELETE'): Promise<void> {
     try {
@@ -132,7 +143,7 @@ export default function KornSpaceApp() {
       const title = path.split('?')[0].endsWith('/trash') ? copy.fileMovedToTrash
         : path.split('?')[0].endsWith('/restore') ? copy.fileRestored : copy.filePermanentlyDeleted;
       sileo.success({ title, duration: 4000 });
-      await refreshFiles();
+      await refreshFiles(pathname === '/trash');
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : copy.fileActionFailed;
       setNotice(message);
@@ -230,6 +241,7 @@ export default function KornSpaceApp() {
       setBreadcrumbs([]);
       setCurrentFolderId(null);
       setTrash([]);
+      hasLoadedFiles.current = false;
     }
     return () => { refreshVersion.current += 1; };
   }, [authStatus, user?.id]);
@@ -298,8 +310,8 @@ export default function KornSpaceApp() {
   }
 
   useEffect(() => {
-    if (authStatus === 'authenticated' && user?.username) void refreshFiles();
-  }, [authStatus, refreshFiles, user?.username]);
+    if (authStatus === 'authenticated' && user?.username && pathname !== '/home' && pathname !== '/shared') void refreshFiles(pathname === '/trash');
+  }, [authStatus, pathname, refreshFiles, user?.username]);
 
   useEffect(() => {
     if (authStatus !== 'authenticated' || !user?.username || !['/files', '/trash'].includes(pathname)) return undefined;
@@ -318,7 +330,7 @@ export default function KornSpaceApp() {
       socket = new WebSocket(`${backend}/api/files/events`);
       socket.addEventListener('open', () => {
         retryDelay = 500;
-        if (hasConnected) void refreshFiles(false);
+        if (hasConnected) void refreshFilesRef.current(false);
         hasConnected = true;
       });
       socket.addEventListener('message', (event) => {
@@ -329,7 +341,7 @@ export default function KornSpaceApp() {
         if (message.type === 'file.status' && typeof message.fileId === 'string'
           && (message.status === 'AVAILABLE' || message.status === 'FAILED')) {
           if (eventRefreshTimer !== undefined) window.clearTimeout(eventRefreshTimer);
-          eventRefreshTimer = window.setTimeout(() => void refreshFiles(false), 100);
+          eventRefreshTimer = window.setTimeout(() => void refreshFilesRef.current(false), 100);
         }
       });
       socket.addEventListener('close', () => {
@@ -346,7 +358,7 @@ export default function KornSpaceApp() {
       if (eventRefreshTimer !== undefined) window.clearTimeout(eventRefreshTimer);
       socket?.close();
     };
-  }, [authStatus, pathname, refreshFiles, user?.username]);
+  }, [authStatus, pathname, user?.username]);
 
   useLayoutEffect(() => {
     const isLogin = route === '/login';
@@ -402,7 +414,7 @@ export default function KornSpaceApp() {
     onMoveToTrash: (file) => void mutateFile(`/api/files/${encodeURIComponent(file.id)}/trash`, 'POST'),
     onDeletePermanent: (id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/permanent`, 'DELETE'),
     onRestore: (id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/restore`, 'POST'),
-    onCreateFolder: createFolder, onChanged: () => refreshFiles(),
+    onCreateFolder: createFolder, onChanged: () => refreshFiles(pathname === '/trash'),
   };
 
   return (

@@ -49,7 +49,14 @@ export interface ResourceActivity {
   createdAt: string;
 }
 
+export interface DraggedResource {
+  kind: 'files' | 'folders';
+  id: string;
+  parentId: string | null;
+}
+
 export interface FileDropOptions {
+  onMove: (resource: DraggedResource, destinationId: string | null) => void;
   folders: StoredFolder[];
   currentFolderId: string | null;
   enabled: boolean;
@@ -57,6 +64,8 @@ export interface FileDropOptions {
 }
 
 export interface FileDropState {
+  isInternalDrag: boolean;
+  startDrag: (event: import('react').DragEvent, resource: DraggedResource) => void;
   isDragging: boolean;
   targetFolderId: string | null;
 }
@@ -175,3 +184,5 @@ export interface ItemPreferencesControls {
 }
 export type SortOrder = 'nameAsc' | 'nameDesc' | 'modifiedDesc' | 'modifiedAsc' | 'sizeDesc' | 'sizeAsc';
 export interface SortableResource { name: string; createdAt: string; updatedAt?: string; sizeBytes?: number; }
+
+export interface LibrarySnapshot { all: StoredFile[]; recent: StoredFile[]; folders: StoredFolder[]; }

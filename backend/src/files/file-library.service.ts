@@ -1,3 +1,4 @@
+import { moveResource } from '../common/move-resource';
 import { BadRequestException, ConflictException, HttpException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { folderAccess, folderPermissionRows, accessibleFolderIds, inheritedFolderRole, strongestRole, type ResourcePermission } from '../folders/folder-policy';
 import type { FileRole } from '@prisma/client';
@@ -18,6 +19,10 @@ export interface LibraryFilters {
 @Injectable()
 export class FileLibraryService {
   constructor(private readonly prisma: PrismaService) {}
+
+  move(id: string, userId: string, destinationId: string | null): Promise<void> {
+    return moveResource(this.prisma, 'files', id, userId, destinationId);
+  }
 
   async storage(userId: string) {
     const records = await this.prisma.storedFile.findMany({ where: { ownerId: userId }, include: { folder: { select: { id: true, name: true } } }, orderBy: [{ sizeBytes: 'desc' }, { id: 'asc' }] });
@@ -112,7 +117,9 @@ export class FileLibraryService {
   }
 
   async listPermissions(id: string, ownerId: string): Promise<ResourcePermission[]> {
-    const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId, deletedAt: null } });
+    // Owners can still inspect the access list for a file in their trash. Mutation
+    // endpoints continue to reject trashed files, so this only restores metadata.
+    const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId } });
     if (!file) throw new NotFoundException('No se encontró el archivo.');
     const grants = await this.prisma.filePermission.findMany({ where: { fileId: id }, include: { user: { select: { name: true, email: true, username: true, pictureUrl: true } } } });
     const direct: ResourcePermission[] = grants.map((grant) => ({ userId: grant.userId, name: grant.user.name, pictureUrl: grant.user.pictureUrl, email: grant.user.email, username: grant.user.username, role: grant.role, inherited: false, sourceId: file.id, sourceName: file.name }));
@@ -150,11 +157,17 @@ export class FileLibraryService {
       include: { owner: { select: { id: true, name: true, email: true } }, folder: { select: { id: true, name: true } }, permissions: { where: { userId }, select: { role: true } }, visits: { where: { userId }, select: { openedAt: true } } },
       orderBy: { updatedAt: 'desc' },
     });
+    const folderRoles = new Map<string, Promise<FileRole | null>>();
+    const roleForFolder = (folderId: string): Promise<FileRole | null> => {
+      let role = folderRoles.get(folderId);
+      if (!role) { role = inheritedFolderRole(this.prisma, folderId, userId); folderRoles.set(folderId, role); }
+      return role;
+    };
     return (await Promise.all(files.map(async (file) => ({
       id: file.id, name: file.name, description: file.description, contentType: file.contentType, sizeBytes: Number(file.sizeBytes), status: file.status,
       checksum: file.checksum, createdAt: file.createdAt.toISOString(), updatedAt: file.updatedAt.toISOString(), deletedAt: null,
       ownerId: file.ownerId, ownerName: file.owner?.name ?? file.owner?.email ?? '', folderId: file.folderId, folderName: file.folder?.name ?? null,
-      permission: file.ownerId === userId ? 'OWNER' : strongestRole(file.permissions[0]?.role ?? null, file.folderId ? await inheritedFolderRole(this.prisma, file.folderId, userId) : null) ?? 'READER',
+      permission: file.ownerId === userId ? 'OWNER' : strongestRole(file.permissions[0]?.role ?? null, file.folderId ? await roleForFolder(file.folderId) : null) ?? 'READER',
       openedAt: file.visits[0]?.openedAt.toISOString() ?? null,
     })))).sort((a, b) => (b.openedAt ?? b.updatedAt).localeCompare(a.openedAt ?? a.updatedAt));
   }
