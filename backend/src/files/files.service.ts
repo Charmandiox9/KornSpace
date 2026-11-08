@@ -18,7 +18,7 @@ import { fileAccess, nameConflict, validateFileName } from './file-policy';
 import { FILE_STORAGE_CLIENTS, type FileStorageClients, type ProcessFileMessage, type StoredFileResponse, type UploadFileResult, type UploadLifecycle } from './file.types';
 
 const defaultAsyncThresholdBytes = 10 * 1024 * 1024;
-const defaultMaxFileSizeBytes = 100 * 1024 * 1024;
+const defaultMaxFileSizeBytes = 1024 * 1024 * 1024;
 
 interface FileStorageConfiguration {
   endpoint: string;
@@ -37,6 +37,12 @@ interface FileStreamMetadata {
 
 class InvalidFileBodyError extends Error {}
 class OversizedFileBodyError extends Error {}
+
+export class FileRangeNotSatisfiableError extends Error {
+  constructor(readonly fileSize: number) {
+    super('The requested file range is not satisfiable.');
+  }
+}
 
 @Injectable()
 export class FilesService {
@@ -90,6 +96,8 @@ export class FilesService {
     const { file } = await fileAccess(this.prisma, id, ownerId, true);
     const result = await this.prisma.storedFile.updateMany({ where: { id, ownerId: file.ownerId, deletedAt: null, deletionPending: false }, data: { deletedAt: new Date() } });
     if (!result.count) throw new NotFoundException('No se encontró el archivo.');
+    const location = file.folderId ? (await this.prisma.folder.findUnique({ where: { id: file.folderId }, select: { name: true } }))?.name ?? null : null;
+    await this.writeActivity(id, ownerId, 'FILE_TRASHED', location ?? 'ROOT');
   }
 
   async restoreFromTrash(id: string, ownerId: string, replaceFileId?: string): Promise<void> {
@@ -114,6 +122,8 @@ export class FilesService {
     }
     if (!restored.count) throw new NotFoundException('El archivo ya no está en la papelera.');
     if (file.status === 'PROCESSING') await this.requeueProcessing(id);
+    const location = file.folderId ? (await this.prisma.folder.findUnique({ where: { id: file.folderId }, select: { name: true } }))?.name ?? null : null;
+    await this.writeActivity(id, ownerId, 'FILE_RESTORED', location ?? 'ROOT');
   }
 
   async permanentlyDelete(id: string, ownerId: string): Promise<void> {
@@ -123,7 +133,13 @@ export class FilesService {
       const claimed = await this.prisma.storedFile.updateMany({ where: { id, ownerId, deletedAt: file.deletedAt }, data: { deletionPending: true } });
       if (!claimed.count) throw new NotFoundException('El archivo ya no está en la papelera.');
       await this.s3.send(new DeleteObjectCommand({ Bucket: this.configuration.bucket, Key: file.s3Key }));
-      await this.prisma.storedFile.deleteMany({ where: { id, ownerId, deletionPending: true } });
+      const actor = await this.prisma.user.findUnique({ where: { id: ownerId }, select: { name: true, email: true } });
+      const location = file.folderId ? (await this.prisma.folder.findUnique({ where: { id: file.folderId }, select: { name: true } }))?.name ?? null : null;
+      await this.prisma.$transaction(async (tx) => {
+        await tx.resourceActivity.updateMany({ where: { fileId: id }, data: { fileId: null } });
+        await tx.resourceActivity.create({ data: { resourceType: 'FILE', resourceId: id, actorId: ownerId, actorName: actor?.name ?? actor?.email ?? '', action: 'FILE_DELETED', detail: location ?? 'ROOT' } });
+        await tx.storedFile.deleteMany({ where: { id, ownerId, deletionPending: true } });
+      });
     } catch (error: unknown) {
       if (error instanceof NotFoundException) throw error;
       throw new ServiceUnavailableException('La eliminación está pendiente. Puedes reintentar.');
@@ -156,6 +172,7 @@ export class FilesService {
     ownerId: string,
     lifecycle: UploadLifecycle = {},
   ): Promise<UploadFileResult> {
+    const actorId = ownerId;
     const normalizedName = this.validateUpload(name, contentType, sizeBytes);
     if (lifecycle.folderId) ownerId = (await folderAccess(this.prisma, lifecycle.folderId, ownerId, true)).folder.ownerId;
     const collision = await this.prisma.storedFile.findFirst({ where: { ownerId, folderId: lifecycle.folderId ?? null, name: normalizedName, deletedAt: null } });
@@ -226,6 +243,8 @@ export class FilesService {
         if (target && target.id !== lifecycle.replaceFileId) nameConflict(target);
         if (target) {
           await tx.storedFile.update({ where: { id: target.id }, data: { deletedAt: replacedAt } });
+          const actor = await tx.user.findUnique({ where: { id: actorId }, select: { name: true, email: true } });
+          await tx.resourceActivity.create({ data: { resourceType: 'FILE', resourceId: target.id, fileId: target.id, actorId, actorName: actor?.name ?? actor?.email ?? '', action: 'FILE_TRASHED', detail: lifecycle.folderId ? (await tx.folder.findUnique({ where: { id: lifecycle.folderId }, select: { name: true } }))?.name ?? 'ROOT' : 'ROOT' } });
           replacedId = target.id;
         }
         const created = await create(tx);
@@ -260,6 +279,8 @@ export class FilesService {
       }
     }
 
+    const folderName = lifecycle.folderId ? (await this.prisma.folder.findUnique({ where: { id: lifecycle.folderId }, select: { name: true } }))?.name ?? null : null;
+    await this.writeActivity(id, actorId, 'UPLOADED', folderName ?? 'ROOT');
     return { file: this.toResponse(file), asynchronous };
   }
 
@@ -275,29 +296,95 @@ export class FilesService {
     await this.sqs.send(new SendMessageCommand({ QueueUrl: this.configuration.queueUrl, MessageBody: JSON.stringify(message) }));
   }
 
-  async getDownload(id: string, ownerId: string): Promise<{ file: StoredFileResponse; body: Readable }> {
+  async getDownload(id: string, ownerId: string, includeTrash = false, requestedRange?: string): Promise<{ file: StoredFileResponse; body: Readable; contentLength: number; contentRange?: string; partial: boolean }> {
     const { file } = await fileAccess(this.prisma, id, ownerId);
-    if (file.deletedAt || file.deletionPending) {
+    if (file.deletionPending || file.deletedAt && (!includeTrash || file.ownerId !== ownerId)) {
       throw new NotFoundException('No se encontró el archivo solicitado.');
     }
     if (file.status !== 'AVAILABLE') {
       throw new ServiceUnavailableException('El archivo todavía no está disponible.');
     }
 
+    const fileSize = Number(file.sizeBytes);
+    const parsedRange = this.parseByteRange(requestedRange, fileSize);
     let body: Readable | undefined;
+    let contentLength = fileSize;
+    let contentRange: string | undefined;
     try {
       const result = await this.s3.send(new GetObjectCommand({
         Bucket: this.configuration.bucket,
         Key: file.s3Key,
+        ...(parsedRange ? { Range: `bytes=${parsedRange.start}-${parsedRange.end}` } : {}),
       }));
       if (result.Body && 'pipe' in result.Body) body = result.Body as Readable;
+      if (parsedRange) {
+        const expectedLength = parsedRange.end - parsedRange.start + 1;
+        if (body && !result.ContentRange && result.$metadata.httpStatusCode !== 206 && result.ContentLength !== expectedLength) {
+          body = this.sliceReadable(body, parsedRange.start, expectedLength);
+        }
+        contentLength = expectedLength;
+        contentRange = result.ContentRange ?? `bytes ${parsedRange.start}-${parsedRange.end}/${fileSize}`;
+      }
     } catch {
       throw new ServiceUnavailableException('No fue posible recuperar el archivo del almacenamiento.');
     }
     if (!body) {
       throw new ServiceUnavailableException('El almacenamiento no devolvió el contenido del archivo.');
     }
-    return { file: this.toResponse(file), body };
+    return { file: this.toResponse(file), body, contentLength, ...(contentRange ? { contentRange } : {}), partial: !!parsedRange };
+  }
+
+  private parseByteRange(rangeHeader: string | undefined, fileSize: number): { start: number; end: number } | undefined {
+    const normalizedRange = rangeHeader?.trim();
+    if (!normalizedRange || normalizedRange.includes(',')) return undefined;
+    const match = /^bytes=(\d*)-(\d*)$/u.exec(normalizedRange);
+    if (!match || (!match[1] && !match[2])) return undefined;
+
+    let start: number;
+    let end: number;
+    if (!match[1]) {
+      const suffixLength = Number(match[2]);
+      if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) throw new FileRangeNotSatisfiableError(fileSize);
+      start = Math.max(0, fileSize - suffixLength);
+      end = fileSize - 1;
+    } else {
+      start = Number(match[1]);
+      end = match[2] ? Number(match[2]) : fileSize - 1;
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= fileSize || end < start) {
+        throw new FileRangeNotSatisfiableError(fileSize);
+      }
+      end = Math.min(end, fileSize - 1);
+    }
+    return { start, end };
+  }
+
+  private sliceReadable(source: Readable, offset: number, length: number): Readable {
+    let skippedBytes = 0;
+    let sentBytes = 0;
+    const slice = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        let chunkOffset = 0;
+        if (skippedBytes < offset) {
+          const bytesToSkip = Math.min(offset - skippedBytes, chunk.length);
+          skippedBytes += bytesToSkip;
+          chunkOffset = bytesToSkip;
+        }
+        const remainingBytes = length - sentBytes;
+        const bytesToSend = Math.min(chunk.length - chunkOffset, remainingBytes);
+        if (bytesToSend > 0) {
+          sentBytes += bytesToSend;
+          this.push(chunk.subarray(chunkOffset, chunkOffset + bytesToSend));
+        }
+        callback();
+        if (sentBytes >= length) {
+          source.unpipe(slice);
+          source.destroy();
+        }
+      },
+    });
+    source.on('error', (error: Error) => slice.destroy(error));
+    source.pipe(slice);
+    return slice;
   }
 
   async getStatus(id: string, ownerId: string): Promise<StoredFileResponse> {
@@ -364,24 +451,37 @@ export class FilesService {
     await this.s3.send(new DeleteObjectCommand({ Bucket: this.configuration.bucket, Key: key })).catch(() => undefined);
   }
 
+  private async writeActivity(fileId: string, userId: string, action: string, detail: string | null): Promise<void> {
+    try {
+      const actor = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+      await this.prisma.resourceActivity.create({ data: { resourceType: 'FILE', resourceId: fileId, fileId, actorId: userId, actorName: actor?.name ?? actor?.email ?? '', action, detail } });
+    } catch { /* Activity must not roll back a completed file operation. */ }
+  }
+
   private toResponse(file: {
     id: string;
+    ownerId: string | null;
     name: string;
+    description: string | null;
     contentType: string;
     sizeBytes: bigint;
     status: 'PROCESSING' | 'AVAILABLE' | 'FAILED';
     checksum: string | null;
     createdAt: Date;
+    updatedAt: Date;
     deletedAt: Date | null;
   }): StoredFileResponse {
     return {
       id: file.id,
+      ownerId: file.ownerId,
       name: file.name,
+      description: file.description,
       contentType: file.contentType,
       sizeBytes: Number(file.sizeBytes),
       status: file.status,
       checksum: file.checksum,
       createdAt: file.createdAt.toISOString(),
+      updatedAt: file.updatedAt.toISOString(),
       deletedAt: file.deletedAt?.toISOString() ?? null,
     };
   }

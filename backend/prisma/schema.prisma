@@ -24,6 +24,7 @@ model User {
   folderPermissions FolderPermission[]
   filePermissions FilePermission[]
   fileVisits FileVisit[]
+  resourceActivities ResourceActivity[]
 }
 
 enum FileStatus {
@@ -35,6 +36,7 @@ enum FileStatus {
 model StoredFile {
   id          String     @id @default(uuid()) @db.Uuid
   name        String
+  description String?    @db.VarChar(1000)
   contentType String
   sizeBytes   BigInt
   s3Key       String     @unique
@@ -47,6 +49,7 @@ model StoredFile {
   preferences FilePreference[]
   permissions FilePermission[]
   visits FileVisit[]
+  activities ResourceActivity[]
   ownerId     String?    @db.Uuid
   owner       User?      @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   folderId    String?    @db.Uuid
@@ -61,6 +64,7 @@ model StoredFile {
 model Folder {
   id        String       @id @default(uuid()) @db.Uuid
   name      String       @db.VarChar(255)
+  description String?    @db.VarChar(1000)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   ownerId   String       @db.Uuid
@@ -71,6 +75,7 @@ model Folder {
   permissions FolderPermission[]
   children  Folder[]     @relation("FolderTree")
   files     StoredFile[]
+  activities ResourceActivity[]
 
   @@unique([id, ownerId])
   @@unique([ownerId, parentId, name])
@@ -101,6 +106,30 @@ model FileVisit {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@id([fileId, userId])
   @@index([userId, openedAt])
+}
+
+enum ResourceType {
+  FILE
+  FOLDER
+}
+
+model ResourceActivity {
+  id           String       @id @default(uuid()) @db.Uuid
+  resourceType ResourceType
+  resourceId   String       @db.Uuid
+  fileId       String?      @db.Uuid
+  folderId     String?      @db.Uuid
+  actorId      String       @db.Uuid
+  actorName    String
+  action       String       @db.VarChar(40)
+  detail       String?
+  createdAt    DateTime     @default(now())
+  file         StoredFile?  @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  folder       Folder?      @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  actor        User         @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([resourceType, resourceId, createdAt])
+  @@index([createdAt])
 }
 
 model FolderPermission {

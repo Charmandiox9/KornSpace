@@ -5,13 +5,14 @@ import { BadRequestException, NotFoundException, PayloadTooLargeException, Servi
 import { PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { SQSClient } from '@aws-sdk/client-sqs';
-import { FilesService } from '../src/files/files.service';
+import { FileRangeNotSatisfiableError, FilesService } from '../src/files/files.service';
 import type { FileStorageClients } from '../src/files/file.types';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 interface StoredFileInput {
   id: string;
   name: string;
+  description?: string | null;
   contentType: string;
   sizeBytes: bigint;
   s3Key: string;
@@ -77,7 +78,8 @@ function createHarness(options: TestOptions = {}) {
 }
 
 function asPrismaFile(file: StoredFileInput) {
-  return { ...file, createdAt: new Date('2026-10-27T12:00:00.000Z') };
+  const now = new Date('2026-10-27T12:00:00.000Z');
+  return { ...file, description: file.description ?? null, folderId: file.folderId ?? null, createdAt: now, updatedAt: now, deletedAt: null, deletionPending: false };
 }
 
 test('FilesService validates name, MIME type, non-empty size and configured maximum before storage', async () => {
@@ -92,15 +94,15 @@ test('FilesService validates name, MIME type, non-empty size and configured maxi
     await assert.rejects(service.upload(Readable.from('x'), input.name, input.contentType, input.size, 'user-1'), BadRequestException);
   }
   await assert.rejects(
-    service.upload(Readable.from('x'), 'large.bin', 'application/octet-stream', 100 * 1024 * 1024 + 1, 'user-1'),
+    service.upload(Readable.from('x'), 'large.bin', 'application/octet-stream', 1024 * 1024 * 1024 + 1, 'user-1'),
     PayloadTooLargeException,
   );
   assert.equal(commands.length, 0);
 });
 
-test('FilesService accepts a file at the 100 MiB limit and persists its owner and available status', async () => {
+test('FilesService accepts a file at the 1 GiB limit and persists its owner and available status', async () => {
   const { service, data } = createHarness();
-  const maxBytes = 100 * 1024 * 1024;
+  const maxBytes = 1024 * 1024 * 1024;
   const source = Readable.from((async function* () {
     const chunk = Buffer.alloc(1024 * 1024);
     for (let sent = 0; sent < maxBytes; sent += chunk.byteLength) yield chunk;
@@ -173,8 +175,10 @@ test('FilesService maps PostgreSQL listing failures to a controlled 503', async 
 
 test('FilesService assigns uploads to an owned folder and rejects a foreign destination before S3', async () => {
   const owned = createHarness({ folderOwnerId: 'user-1' });
+  await owned.service.upload(Readable.from('root'), 'root.txt', 'text/plain', 4, 'user-1');
+  assert.equal(owned.data[0]?.folderId ?? null, null);
   await owned.service.upload(Readable.from('inside'), 'inside.txt', 'text/plain', 6, 'user-1', { folderId: 'folder-1' });
-  assert.equal(owned.data[0]?.folderId, 'folder-1');
+  assert.equal(owned.data[1]?.folderId, 'folder-1');
 
   const foreign = createHarness({ folderOwnerId: 'user-2' });
   await assert.rejects(
@@ -218,6 +222,32 @@ test('FilesService downloads only available files owned by the requester and map
   stored = file;
   failGet = true;
   await assert.rejects(service.getDownload(file.id, 'owner-1'), ServiceUnavailableException);
+});
+
+test('FilesService honors byte ranges and slices the response when S3 ignores Range', async () => {
+  const file: StoredFileInput = {
+    id: 'a8120cf2-69df-4f51-a80a-ec44fe2120a1', name: 'video.mp4', contentType: 'video/mp4',
+    sizeBytes: 11n, s3Key: 'files/video-1', ownerId: 'owner-1', checksum: 'abc', status: 'AVAILABLE',
+  };
+  const prisma = { storedFile: { findFirst: async () => asPrismaFile(file) } } as unknown as PrismaService;
+  const s3 = { send: async (command: unknown): Promise<unknown> => {
+    assert.ok(command instanceof GetObjectCommand);
+    assert.equal(command.input.Range, 'bytes=6-10');
+    return { Body: Readable.from('hello world'), ContentLength: 11, $metadata: { httpStatusCode: 200 } };
+  } } as unknown as S3Client;
+  const service = new FilesService(prisma, { s3, sqs: { send: async () => ({}) } as unknown as SQSClient });
+
+  const partial = await service.getDownload(file.id, 'owner-1', false, 'bytes=6-');
+  assert.equal(partial.partial, true);
+  assert.equal(partial.contentLength, 5);
+  assert.equal(partial.contentRange, 'bytes 6-10/11');
+  assert.equal(await new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    partial.body.on('data', (chunk: Buffer | string) => chunks.push(Buffer.from(chunk)));
+    partial.body.on('end', () => resolve(Buffer.concat(chunks).toString()));
+    partial.body.on('error', reject);
+  }), 'world');
+  await assert.rejects(service.getDownload(file.id, 'owner-1', false, 'bytes=11-'), FileRangeNotSatisfiableError);
 });
 
 

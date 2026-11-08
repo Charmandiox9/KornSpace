@@ -8,18 +8,20 @@ export function inheritanceHarness() {
   const rootId = '10000000-0000-4000-8000-000000000001';
   const childId = '10000000-0000-4000-8000-000000000002';
   const fileId = '10000000-0000-4000-8000-000000000003';
-  const folders: Folder[] = [{ id: rootId, ownerId: 'owner', parentId: null, name: 'Root', createdAt: now, updatedAt: now }, { id: childId, ownerId: 'owner', parentId: rootId, name: 'Child', createdAt: now, updatedAt: now }];
-  const files: StoredFile[] = [{ id: fileId, name: 'plan.txt', folderId: childId, ownerId: 'owner', contentType: 'text/plain', sizeBytes: 4n, checksum: 'hash', s3Key: 'files/test', status: 'AVAILABLE', deletedAt: null, deletionPending: false, createdAt: now, updatedAt: now }];
+  const folders: Folder[] = [{ id: rootId, ownerId: 'owner', parentId: null, name: 'Root', description: null, createdAt: now, updatedAt: now }, { id: childId, ownerId: 'owner', parentId: rootId, name: 'Child', description: null, createdAt: now, updatedAt: now }];
+  const files: StoredFile[] = [{ id: fileId, name: 'plan.txt', description: null, folderId: childId, ownerId: 'owner', contentType: 'text/plain', sizeBytes: 4n, checksum: 'hash', s3Key: 'files/test', status: 'AVAILABLE', deletedAt: null, deletionPending: false, createdAt: now, updatedAt: now }];
   const folderGrants = new Map<string, FileRole>();
   const fileGrants = new Map<string, FileRole>();
   interface Where { OR?: Array<{ ownerId?: string; permissions?: { some: { userId: string } }; folderId?: { in: string[] } }>; name?: string; id?: string; ownerId?: string; parentId?: string | null | { in: string[] }; folderId?: string | null; permissions?: { some: { userId: string } }; }
   const tx = {
+    user: { findUnique: async () => ({ name: 'Owner', email: 'owner@example.test' }), findMany: async () => [] },
+    resourceActivity: { create: async () => ({}), updateMany: async () => ({ count: 0 }), findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
     folder: {
       findUnique: async ({ where }: { where: { id: string } }) => folders.find((folder) => folder.id === where.id) ?? null,
       findMany: async ({ where }: { where: Where }) => folders.filter((folder) => (!where.ownerId || folder.ownerId === where.ownerId) && (typeof where.parentId === 'object' && where.parentId !== null ? where.parentId.in.includes(folder.parentId ?? '') : folder.parentId === where.parentId)),
       findFirst: async ({ where }: { where: Where }) => folders.find((folder) => folder.parentId === where.parentId) ?? null,
       update: async ({ where, data }: { where: { id: string }; data: { name: string } }) => { const folder = folders.find((item) => item.id === where.id)!; Object.assign(folder, data); return folder; },
-      create: async ({ data }: { data: { name: string; ownerId: string; parentId: string } }) => { const folder = { ...data, id: 'created-folder', createdAt: now, updatedAt: now }; folders.push(folder); return folder; },
+      create: async ({ data }: { data: { name: string; ownerId: string; parentId: string } }) => { const folder = { ...data, description: null, id: 'created-folder', createdAt: now, updatedAt: now }; folders.push(folder); return folder; },
       delete: async () => { throw new Error('No deletion expected'); },
     },
     folderPermission: {

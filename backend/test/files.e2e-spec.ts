@@ -40,7 +40,7 @@ test('file REST endpoints expose upload, listing, and processing status', async 
       return { file, asynchronous: true };
     },
     getStatus: async () => file,
-    getDownload: async () => ({ file: availableFile, body: Readable.from('file') }),
+    getDownload: async () => ({ file: availableFile, body: Readable.from('file'), contentLength: 4, partial: false }),
   };
   const moduleRef = await Test.createTestingModule({
     controllers: [FilesController],
@@ -109,6 +109,47 @@ test('file REST endpoints expose upload, listing, and processing status', async 
   }
 });
 
+test('file upload REST route rejects a destination folder the authenticated user cannot write to', async () => {
+  const folderId = 'a8120cf2-69df-4f51-a80a-ec44fe2120a1';
+  let storageWrites = 0;
+  const prisma = {
+    folder: { findUnique: async () => ({ id: folderId, ownerId: 'folder-owner', parentId: null }) },
+    folderPermission: { findUnique: async () => null },
+    storedFile: { findFirst: async () => null },
+  } as unknown as PrismaService;
+  const clients: FileStorageClients = {
+    s3: { send: async () => { storageWrites += 1; return {}; } } as unknown as S3Client,
+    sqs: { send: async () => ({}) } as unknown as SQSClient,
+  };
+  const filesService = new FilesService(prisma, clients);
+  const moduleRef = await Test.createTestingModule({
+    controllers: [FilesController],
+    providers: [{ provide: FilesService, useValue: filesService }],
+  }).overrideGuard(SessionJwtGuard).useValue({
+    canActivate: (context: { switchToHttp: () => { getRequest: () => { headers: Record<string, string | undefined>; authContext?: { userId: string } } } }) => {
+      const request = context.switchToHttp().getRequest();
+      request.authContext = { userId: request.headers['x-test-user'] ?? '' };
+      return true;
+    },
+  }).compile();
+  const app: INestApplication = moduleRef.createNestApplication();
+  app.setGlobalPrefix('api');
+  await app.listen(0, '127.0.0.1');
+
+  try {
+    const address = app.getHttpServer().address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/files?name=forbidden.txt&folderId=${folderId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain', 'content-length': '7', 'x-test-user': 'stranger' },
+      body: 'content',
+    });
+    assert.equal(response.status, 404);
+    assert.equal(storageWrites, 0);
+  } finally {
+    await app.close();
+  }
+});
+
 test('file HTTP upload enforces size, owner isolation, and controlled S3/DB failures', async () => {
   const priorMaxSize = process.env.FILE_MAX_SIZE_BYTES;
   process.env.FILE_MAX_SIZE_BYTES = '4';
@@ -117,6 +158,7 @@ test('file HTTP upload enforces size, owner isolation, and controlled S3/DB fail
   const storedFiles: Array<{
     id: string;
     name: string;
+    description: string | null;
     contentType: string;
     sizeBytes: bigint;
     s3Key: string;
@@ -124,6 +166,10 @@ test('file HTTP upload enforces size, owner isolation, and controlled S3/DB fail
     checksum: string | null;
     status: 'PROCESSING' | 'AVAILABLE';
     createdAt: Date;
+    updatedAt: Date;
+    deletedAt: Date | null;
+    deletionPending: boolean;
+    folderId: string | null;
   }> = [];
   const s3 = {
     send: async (command: unknown): Promise<unknown> => {
@@ -143,9 +189,10 @@ test('file HTTP upload enforces size, owner isolation, and controlled S3/DB fail
     storedFile: {
       findFirst: async () => null,
       findMany: async ({ where }: { where: { ownerId: string } }) => storedFiles.filter((file) => file.ownerId === where.ownerId),
-      create: async ({ data }: { data: Omit<(typeof storedFiles)[number], 'createdAt'> }) => {
+      create: async ({ data }: { data: Omit<(typeof storedFiles)[number], 'createdAt' | 'updatedAt' | 'description' | 'deletedAt' | 'deletionPending'> }) => {
         if (failDatabaseCreate) throw new Error('PostgreSQL unavailable');
-        const file = { ...data, createdAt: new Date('2026-10-27T12:00:00.000Z') };
+        const createdAt = new Date('2026-10-27T12:00:00.000Z');
+        const file = { ...data, description: null, deletedAt: null, deletionPending: false, createdAt, updatedAt: createdAt };
         storedFiles.push(file);
         return file;
       },

@@ -6,6 +6,8 @@ export type PermissionClient = Pick<PrismaService, 'folder' | 'folderPermission'
 export interface FolderAccess { folder: Folder; role: 'OWNER' | FileRole; }
 export interface ResourcePermission {
   userId: string;
+  name?: string | null;
+  pictureUrl?: string | null;
   email: string;
   username: string | null;
   role: FileRole;
@@ -52,8 +54,8 @@ export async function folderPermissionRows(prisma: PermissionClient, id: string,
   const rows: ResourcePermission[] = [];
   for (const [index, folder] of chain.entries()) {
     if (!includeCurrent && index === 0) continue;
-    const grants = await prisma.folderPermission.findMany({ where: { folderId: folder.id }, include: { user: { select: { email: true, username: true } } } });
-    rows.push(...grants.map((grant) => ({ userId: grant.userId, email: grant.user.email, username: grant.user.username, role: grant.role, inherited: index !== 0 || !includeCurrent, sourceId: folder.id, sourceName: folder.name })));
+    const grants = await prisma.folderPermission.findMany({ where: { folderId: folder.id }, include: { user: { select: { name: true, email: true, username: true, pictureUrl: true } } } });
+    rows.push(...grants.map((grant) => ({ userId: grant.userId, name: grant.user.name, pictureUrl: grant.user.pictureUrl, email: grant.user.email, username: grant.user.username, role: grant.role, inherited: index !== 0 || !includeCurrent, sourceId: folder.id, sourceName: folder.name })));
   }
   return rows;
 }

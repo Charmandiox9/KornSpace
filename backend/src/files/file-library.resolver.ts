@@ -20,6 +20,7 @@ class LibraryFiltersInput implements LibraryFilters {
 class LibraryFile {
   @Field() id!: string;
   @Field() name!: string;
+  @Field(() => String, { nullable: true }) description!: string | null;
   @Field() contentType!: string;
   @Field(() => Float) sizeBytes!: number;
   @Field() status!: string;

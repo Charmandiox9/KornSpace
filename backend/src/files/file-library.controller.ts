@@ -7,11 +7,15 @@ import { SessionJwtGuard } from '../auth/session-jwt.guard';
 import { FileLibraryService } from './file-library.service';
 import { PermissionRoleDto, ResourcePermissionDto } from '../folders/permission.dto';
 import { FilesService } from './files.service';
+import { ResourceActivityDto } from '../common/dto/resource-activity.dto';
 import type { ShareRecipient } from './file.types';
 
 class FileNameDto {
   @ApiProperty({ maxLength: 255 }) @IsString() @MinLength(1) @MaxLength(255) name!: string;
   @ApiPropertyOptional({ format: 'uuid', description: 'ID de la colisión confirmada por el usuario. El archivo anterior pasa a la papelera.' }) @IsOptional() @IsUUID() replaceFileId?: string;
+}
+class FileDescriptionDto {
+  @ApiProperty({ maxLength: 1000 }) @IsString() @MaxLength(1000) description!: string;
 }
 class CheckFileNameDto {
   @ApiProperty({ maxLength: 255 }) @IsString() @MinLength(1) @MaxLength(255) name!: string;
@@ -58,6 +62,16 @@ class EmptyTrashResponseDto {
 @ApiServiceUnavailableResponse({ description: 'La operación no pudo completarse; el borrado conserva metadatos para reintento.' })
 export class FileLibraryController {
   constructor(private readonly library: FileLibraryService, private readonly files: FilesService) {}
+
+  @Put(':id/description') @ApiOperation({ summary: 'Actualiza la descripción de un archivo como propietario o editor' }) @ApiOkResponse()
+  updateDescription(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: FileDescriptionDto, @CurrentUser() user: AuthenticatedUserContext) {
+    return this.library.updateDescription(id, user.userId, body.description);
+  }
+
+  @Get(':id/activity') @ApiOperation({ summary: 'Consulta la actividad de un archivo accesible durante el último año' }) @ApiOkResponse({ type: ResourceActivityDto, isArray: true })
+  activity(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext) {
+    return this.library.activity(id, user.userId);
+  }
 
   @Patch(':id') @ApiOperation({ summary: 'Renombra un archivo como propietario o editor' }) @ApiOkResponse({ type: RenameResponseDto })
   rename(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: FileNameDto, @CurrentUser() user: AuthenticatedUserContext) {

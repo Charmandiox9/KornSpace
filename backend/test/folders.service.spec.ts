@@ -7,6 +7,7 @@ import type { PrismaService } from '../src/prisma/prisma.service';
 interface FolderRecord {
   id: string;
   name: string;
+  description: string | null;
   ownerId: string;
   parentId: string | null;
   createdAt: Date;
@@ -19,25 +20,29 @@ function createHarness() {
   let nextId = 0;
   const prisma = {
     folderPermission: { findMany: async () => [], findUnique: async () => null },
+    user: { findUnique: async () => ({ name: 'Owner', email: 'owner@example.test' }) },
+    resourceActivity: { create: async () => ({}), findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
     folder: {
       findUnique: async ({ where }: { where: { id: string } }) => folders.find((folder) => folder.id === where.id) ?? null,
       findFirst: async ({ where }: { where: { id: string; ownerId: string } }) =>
         folders.find((folder) => folder.id === where.id && folder.ownerId === where.ownerId) ?? null,
       findMany: async ({ where }: { where: { ownerId: string; parentId: string | null } }) =>
         folders.filter((folder) => folder.ownerId === where.ownerId && folder.parentId === where.parentId),
+      // Storage usage performs a separate descendant query without ownerId.
       create: async ({ data }: { data: Omit<FolderRecord, 'id' | 'createdAt' | 'updatedAt'> }) => {
         if (folders.some((folder) => folder.ownerId === data.ownerId && folder.parentId === data.parentId && folder.name === data.name)) {
           throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
         }
         const now = new Date('2026-11-05T12:00:00.000Z');
-        const folder = { ...data, id: `folder-${++nextId}`, createdAt: now, updatedAt: now };
+        const folder = { ...data, description: null, id: `folder-${++nextId}`, createdAt: now, updatedAt: now };
         folders.push(folder);
         return folder;
       },
     },
     storedFile: {
       findMany: async ({ where }: { where: { ownerId: string; folderId: string | null; deletedAt: null } }) =>
-        files.filter((file) => file.ownerId === where.ownerId && file.folderId === where.folderId && file.deletedAt === null),
+        files.filter((file) => file.ownerId === where.ownerId && file.folderId === where.folderId && file.deletedAt === null).map((file) => ({ ...file, description: null, updatedAt: file.createdAt, owner: { name: 'Owner', email: 'owner@example.test' }, permissions: [], visits: [] })),
+      aggregate: async () => ({ _sum: { sizeBytes: null } }),
     },
   } as unknown as PrismaService;
   return { service: new FoldersService(prisma), folders, files };

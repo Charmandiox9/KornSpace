@@ -24,7 +24,7 @@ export class FileLibraryService {
     return {
       totalBytes: Number(records.reduce((sum, file) => sum + file.sizeBytes, 0n)),
       trashBytes: Number(records.filter((file) => file.deletedAt).reduce((sum, file) => sum + file.sizeBytes, 0n)),
-      files: records.map((file) => ({ id: file.id, name: file.name, contentType: file.contentType, sizeBytes: Number(file.sizeBytes), status: file.status, checksum: file.checksum, createdAt: file.createdAt.toISOString(), updatedAt: file.updatedAt.toISOString(), deletedAt: file.deletedAt?.toISOString() ?? null, ownerId: userId, ownerName: '', folderId: file.folderId, folderName: file.folder?.name ?? null, permission: 'OWNER', openedAt: null })),
+      files: records.map((file) => ({ id: file.id, name: file.name, description: file.description, contentType: file.contentType, sizeBytes: Number(file.sizeBytes), status: file.status, checksum: file.checksum, createdAt: file.createdAt.toISOString(), updatedAt: file.updatedAt.toISOString(), deletedAt: file.deletedAt?.toISOString() ?? null, ownerId: userId, ownerName: '', folderId: file.folderId, folderName: file.folder?.name ?? null, permission: 'OWNER', openedAt: null })),
     };
   }
 
@@ -49,6 +49,8 @@ export class FileLibraryService {
           await tx.storedFile.update({ where: { id: conflict.id }, data: { deletedAt: new Date() } });
         }
         const result = await tx.storedFile.update({ where: { id }, data: { name } });
+        const actor = await tx.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+        await tx.resourceActivity.create({ data: { resourceType: 'FILE', resourceId: id, fileId: id, actorId: userId, actorName: actor?.name ?? actor?.email ?? '', action: 'RENAMED', detail: name } });
         return { id: result.id, name: result.name, updatedAt: result.updatedAt.toISOString() };
       });
     } catch (error: unknown) {
@@ -69,6 +71,23 @@ export class FileLibraryService {
     await this.prisma.fileVisit.upsert({ where: { fileId_userId: { fileId: id, userId } }, create: { fileId: id, userId }, update: { openedAt: new Date() } });
   }
 
+  async updateDescription(id: string, userId: string, value: string) {
+    const { file } = await fileAccess(this.prisma, id, userId, true);
+    if (file.deletedAt || file.deletionPending) throw new NotFoundException('No se encontró el archivo.');
+    const result = await this.prisma.storedFile.update({ where: { id }, data: { description: value.trim() || null } });
+    const actor = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+    await this.prisma.resourceActivity.create({ data: { resourceType: 'FILE', resourceId: id, fileId: id, actorId: userId, actorName: actor?.name ?? actor?.email ?? '', action: 'DESCRIPTION_UPDATED' } });
+    return { id: result.id, description: result.description, updatedAt: result.updatedAt.toISOString() };
+  }
+
+  async activity(id: string, userId: string) {
+    const { file } = await fileAccess(this.prisma, id, userId);
+    if (file.deletionPending) throw new NotFoundException('No se encontró el archivo.');
+    const cutoff = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    await this.prisma.resourceActivity.deleteMany({ where: { OR: [{ createdAt: { lt: cutoff } }, { action: 'OPENED' }] } });
+    return this.prisma.resourceActivity.findMany({ where: { resourceType: 'FILE', resourceId: id, action: { not: 'OPENED' }, createdAt: { gte: cutoff } }, orderBy: { createdAt: 'desc' }, take: 100 });
+  }
+
   async resolveRecipient(id: string, userId: string, identifier: string): Promise<ShareRecipient> {
     const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId: userId, deletedAt: null, deletionPending: false } });
     if (!file) throw new NotFoundException('No se encontró el archivo.');
@@ -87,14 +106,16 @@ export class FileLibraryService {
   async grant(id: string, userId: string, identifier: string, role: 'READER' | 'EDITOR', expectedRecipientId?: string) {
     const recipient = await this.resolveRecipient(id, userId, identifier);
     if (expectedRecipientId && recipient.userId !== expectedRecipientId) throw new ConflictException('El destinatario cambió. Compruébalo antes de compartir.');
-    return this.prisma.filePermission.upsert({ where: { fileId_userId: { fileId: id, userId: recipient.userId } }, create: { fileId: id, userId: recipient.userId, role }, update: { role }, select: { userId: true, role: true } });
+    const result = await this.prisma.filePermission.upsert({ where: { fileId_userId: { fileId: id, userId: recipient.userId } }, create: { fileId: id, userId: recipient.userId, role }, update: { role }, select: { userId: true, role: true } });
+    await this.writeActivity(id, userId, 'ACCESS_GRANTED', role);
+    return result;
   }
 
   async listPermissions(id: string, ownerId: string): Promise<ResourcePermission[]> {
     const file = await this.prisma.storedFile.findFirst({ where: { id, ownerId, deletedAt: null } });
     if (!file) throw new NotFoundException('No se encontró el archivo.');
-    const grants = await this.prisma.filePermission.findMany({ where: { fileId: id }, include: { user: { select: { email: true, username: true } } } });
-    const direct: ResourcePermission[] = grants.map((grant) => ({ userId: grant.userId, email: grant.user.email, username: grant.user.username, role: grant.role, inherited: false, sourceId: file.id, sourceName: file.name }));
+    const grants = await this.prisma.filePermission.findMany({ where: { fileId: id }, include: { user: { select: { name: true, email: true, username: true, pictureUrl: true } } } });
+    const direct: ResourcePermission[] = grants.map((grant) => ({ userId: grant.userId, name: grant.user.name, pictureUrl: grant.user.pictureUrl, email: grant.user.email, username: grant.user.username, role: grant.role, inherited: false, sourceId: file.id, sourceName: file.name }));
     const inherited = file.folderId ? (await folderPermissionRows(this.prisma, file.folderId)).map((grant) => ({ ...grant, inherited: true })) : [];
     return [...direct, ...inherited];
   }
@@ -103,11 +124,13 @@ export class FileLibraryService {
     if (!await this.prisma.storedFile.findFirst({ where: { id, ownerId, deletedAt: null } })) throw new NotFoundException('No se encontró el archivo.');
     const result = await this.prisma.filePermission.updateMany({ where: { fileId: id, userId }, data: { role } });
     if (!result.count) throw new NotFoundException('No se encontró el permiso directo.');
+    await this.writeActivity(id, ownerId, 'ACCESS_UPDATED', role);
   }
 
   async revoke(id: string, ownerId: string, userId: string): Promise<void> {
     if (!await this.prisma.storedFile.findFirst({ where: { id, ownerId, deletedAt: null } })) throw new NotFoundException('No se encontró el archivo.');
-    await this.prisma.filePermission.deleteMany({ where: { fileId: id, userId } });
+    const result = await this.prisma.filePermission.deleteMany({ where: { fileId: id, userId } });
+    if (result.count) await this.writeActivity(id, ownerId, 'ACCESS_REVOKED', null);
   }
 
   async browse(userId: string, filters: LibraryFilters = {}) {
@@ -128,11 +151,18 @@ export class FileLibraryService {
       orderBy: { updatedAt: 'desc' },
     });
     return (await Promise.all(files.map(async (file) => ({
-      id: file.id, name: file.name, contentType: file.contentType, sizeBytes: Number(file.sizeBytes), status: file.status,
+      id: file.id, name: file.name, description: file.description, contentType: file.contentType, sizeBytes: Number(file.sizeBytes), status: file.status,
       checksum: file.checksum, createdAt: file.createdAt.toISOString(), updatedAt: file.updatedAt.toISOString(), deletedAt: null,
       ownerId: file.ownerId, ownerName: file.owner?.name ?? file.owner?.email ?? '', folderId: file.folderId, folderName: file.folder?.name ?? null,
       permission: file.ownerId === userId ? 'OWNER' : strongestRole(file.permissions[0]?.role ?? null, file.folderId ? await inheritedFolderRole(this.prisma, file.folderId, userId) : null) ?? 'READER',
       openedAt: file.visits[0]?.openedAt.toISOString() ?? null,
     })))).sort((a, b) => (b.openedAt ?? b.updatedAt).localeCompare(a.openedAt ?? a.updatedAt));
+  }
+
+  private async writeActivity(fileId: string, userId: string, action: string, detail: string | null): Promise<void> {
+    try {
+      const actor = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } });
+      await this.prisma.resourceActivity.create({ data: { resourceType: 'FILE', resourceId: fileId, fileId, actorId: userId, actorName: actor?.name ?? actor?.email ?? '', action, detail } });
+    } catch { /* Activity must not roll back a completed file operation. */ }
   }
 }

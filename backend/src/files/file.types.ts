@@ -12,8 +12,14 @@ export interface ShareRecipient {
 }
 
 export interface StoredFileResponse {
+  description?: string | null;
+  updatedAt?: string;
   permission?: 'OWNER' | 'READER' | 'EDITOR';
   ownerId?: string | null;
+  ownerName?: string;
+  folderId?: string | null;
+  folderName?: string | null;
+  openedAt?: string | null;
   id: string;
   name: string;
   contentType: string;
@@ -22,6 +28,14 @@ export interface StoredFileResponse {
   checksum: string | null;
   createdAt: string;
   deletedAt: string | null;
+}
+
+export interface ResourceActivityResponse {
+  id: string;
+  actorName: string;
+  action: string;
+  detail: string | null;
+  createdAt: string;
 }
 
 export interface ProcessFileMessage {

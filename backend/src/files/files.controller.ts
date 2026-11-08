@@ -16,10 +16,10 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { ApiAcceptedResponse, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPayloadTooLargeResponse, ApiProduces, ApiProperty, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse, ApiUnsupportedMediaTypeResponse } from '@nestjs/swagger';
+import { ApiAcceptedResponse, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPartialContentResponse, ApiPayloadTooLargeResponse, ApiProduces, ApiProperty, ApiPropertyOptional, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse, ApiUnsupportedMediaTypeResponse } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { FileLibraryService } from './file-library.service';
-import { FilesService } from './files.service';
+import { FileRangeNotSatisfiableError, FilesService } from './files.service';
 import type { StoredFileResponse, UploadFileResult, UploadOperationResponse } from './file.types';
 import { ManagedUploadsService } from './managed-uploads.service';
 import type { UploadPhase } from './upload-registry.service';
@@ -28,6 +28,8 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthenticatedUserContext } from '../auth/auth.types';
 
 export class FileResponseDto implements StoredFileResponse {
+  @ApiPropertyOptional({ type: String, nullable: true, maxLength: 1000 }) description?: string | null;
+  @ApiPropertyOptional({ format: 'date-time' }) updatedAt?: string;
   @ApiProperty({ required: false, enum: ['OWNER', 'READER', 'EDITOR'] }) permission?: 'OWNER' | 'READER' | 'EDITOR';
   @ApiProperty({ required: false, type: String, nullable: true, format: 'uuid' }) ownerId?: string | null;
   @ApiProperty({ format: 'uuid' })
@@ -70,7 +72,7 @@ function encodeContentDispositionFilename(name: string): string {
 
 const previewContentTypes = new Set([
   'image/avif', 'image/bmp', 'image/gif', 'image/jpeg', 'image/png', 'image/webp',
-  'video/mp4', 'video/ogg', 'video/webm',
+  'video/mp4', 'video/ogg', 'video/webm', 'application/pdf', 'text/plain', 'application/json', 'application/xml',
 ]);
 
 @Controller('files')
@@ -135,7 +137,7 @@ export class FilesController {
   @ApiCreatedResponse({ type: UploadResponseDto, description: 'Archivo pequeño guardado y disponible.' })
   @ApiAcceptedResponse({ type: UploadResponseDto, description: 'Archivo grande guardado y en procesamiento.' })
   @ApiBadRequestResponse({ description: 'Falta nombre, Content-Type o Content-Length; el archivo está vacío o sus metadatos no son válidos.' })
-  @ApiPayloadTooLargeResponse({ description: 'El archivo excede el máximo configurado de 100 MiB.' })
+  @ApiPayloadTooLargeResponse({ description: 'El archivo excede el máximo configurado de 1 GiB.' })
   @ApiConflictResponse({ description: 'El identificador del intento ya fue usado o cancelado. Consulta su estado y usa uno nuevo al reintentar.' })
   @ApiServiceUnavailableResponse({ description: 'Falló el almacenamiento S3, el guardado de metadatos en PostgreSQL o el encolado.' })
   @ApiNotFoundResponse({ description: 'La carpeta de destino no existe o no pertenece al usuario.' })
@@ -229,20 +231,37 @@ export class FilesController {
   }
 
   @Get(':id/preview')
-  @ApiOperation({ summary: 'Previsualiza un archivo disponible de imagen o video' })
+  @ApiOperation({ summary: 'Previsualiza un archivo disponible compatible, sin exponer URL de almacenamiento' })
   @ApiParam({ name: 'id', description: 'Identificador UUID del archivo.' })
+  @ApiQuery({ name: 'trash', required: false, enum: ['true'], description: 'Permite previsualizar el elemento en papelera sólo a su propietario.' })
+  @ApiHeader({ name: 'Range', required: false, description: 'Rango de bytes para búsqueda eficiente en audio y video.' })
   @ApiProduces('image/*', 'video/*')
   @ApiOkResponse({ description: 'Contenido en línea para previsualización.' })
+  @ApiPartialContentResponse({ description: 'Rango de bytes solicitado para previsualización.' })
   @ApiNotFoundResponse({ description: 'El archivo no existe o no pertenece al usuario.' })
   @ApiUnauthorizedResponse({ description: 'La sesión está ausente o no es válida.' })
   @ApiServiceUnavailableResponse({ description: 'El archivo no está disponible o S3 no pudo entregarlo.' })
   @ApiUnsupportedMediaTypeResponse({ description: 'El contenido no es una imagen o video admitido para previsualización.' })
-  async preview(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext, @Res() response: Response): Promise<void> {
-    const { file, body } = await this.filesService.getDownload(id, user.userId);
+  async preview(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext, @Query('trash') trash: string | undefined, @Headers('range') range: string | undefined, @Res() response: Response): Promise<void> {
+    let result: Awaited<ReturnType<FilesService['getDownload']>>;
+    try {
+      result = await this.filesService.getDownload(id, user.userId, trash === 'true', range);
+    } catch (error: unknown) {
+      if (error instanceof FileRangeNotSatisfiableError) {
+        response.status(416).setHeader('Accept-Ranges', 'bytes').setHeader('Content-Range', `bytes */${error.fileSize}`).end();
+        return;
+      }
+      throw error;
+    }
+    const { file, body } = result;
     const contentType = file.contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
     if (!previewContentTypes.has(contentType)) throw new UnsupportedMediaTypeException('Este tipo de archivo no admite previsualización.');
+    if (!file.deletedAt) void this.library?.recordAccess(id, user.userId).catch(() => undefined);
     response.setHeader('Content-Type', contentType);
-    response.setHeader('Content-Length', file.sizeBytes);
+    response.setHeader('Accept-Ranges', 'bytes');
+    response.setHeader('Content-Length', result.contentLength);
+    if (result.contentRange) response.setHeader('Content-Range', result.contentRange);
+    if (result.partial) response.status(206);
     response.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeContentDispositionFilename(file.name)}`);
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Content-Security-Policy', 'sandbox');
