@@ -379,6 +379,7 @@ export class FilesService {
         if (sentBytes >= length) {
           source.unpipe(slice);
           source.destroy();
+          this.push(null);
         }
       },
     });
