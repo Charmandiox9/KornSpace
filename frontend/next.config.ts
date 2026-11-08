@@ -8,8 +8,8 @@ export default function nextConfig(phase: string): NextConfig {
   return {
     output: 'standalone',
     outputFileTracingRoot: path.resolve(process.cwd(), '..'),
-    // Uploads are streamed through the Next proxy and may be as large as 100 MiB.
-    experimental: { middlewareClientMaxBodySize: '100mb' },
+    // Uploads are streamed through the Next proxy and may be as large as 1 GiB.
+    experimental: { middlewareClientMaxBodySize: '1gb' },
     // Keep the running development server independent from production builds and E2E tests.
     distDir: phase === PHASE_DEVELOPMENT_SERVER ? '.next-dev' : '.next',
     async rewrites() {

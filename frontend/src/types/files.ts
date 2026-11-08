@@ -1,4 +1,5 @@
 export interface StoredFile {
+  description?: string | null;
   updatedAt?: string;
   ownerId?: string | null;
   ownerName?: string;
@@ -29,6 +30,8 @@ export interface ResolvedShareRecipient {
 }
 
 export interface StoredFolder {
+  description?: string | null;
+  storageBytes?: number;
   permission?: 'OWNER' | 'READER' | 'EDITOR';
   id: string;
   name: string;
@@ -36,6 +39,14 @@ export interface StoredFolder {
   parentId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ResourceActivity {
+  id: string;
+  actorName: string;
+  action: string;
+  detail: string | null;
+  createdAt: string;
 }
 
 export interface FileDropOptions {
@@ -85,6 +96,7 @@ export interface UploadItem {
   loadedBytes: number;
   status: UploadStatus;
   completionWon: boolean;
+  destinationName: string;
   error: UploadValidationError | 'requestFailed' | null;
 }
 
@@ -92,6 +104,7 @@ export interface UploadJob {
   id: string;
   file: File;
   folderId: string | null;
+  destinationName: string;
   operationId: string;
   epoch: number;
   controller: AbortController;
@@ -102,7 +115,7 @@ export interface UploadJob {
 export interface UploadQueueOptions {
   upload: (file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string, folderId: string | null) => Promise<UploadResult | 'cancelled'>;
   cancelUpload: (operationId: string) => Promise<CancellationResult>;
-  onUploaded: () => Promise<void>;
+  onUploaded: (folderId: string | null) => Promise<void>;
   concurrency?: number;
 }
 
@@ -110,7 +123,7 @@ export interface UploadQueue {
   getSnapshot: () => UploadItem[];
   getServerSnapshot: () => UploadItem[];
   subscribe: (listener: () => void) => () => void;
-  enqueue: (files: File[], folderId?: string | null) => void;
+  enqueue: (files: File[], folderId?: string | null, destinationName?: string) => void;
   cancel: () => void;
   cancelItem: (id: string) => void;
   retryItem: (id: string) => void;
@@ -120,7 +133,7 @@ export interface UploadQueueControls {
   conflict: UploadConflict | null;
   resolveConflict: (replace: boolean) => void;
   queue: UploadQueue;
-  enqueue: (files: File[], folderId?: string | null) => void;
+  enqueue: (files: File[], folderId?: string | null, destinationName?: string) => void;
   cancelItem: (id: string) => void;
   retryItem: (id: string) => void;
 }
@@ -135,6 +148,8 @@ export interface RestoreConflict { path: string; name: string; conflictId: strin
 
 export interface ResourcePermission {
   userId: string;
+  name?: string | null;
+  pictureUrl?: string | null;
   email: string;
   username: string | null;
   role: 'READER' | 'EDITOR';

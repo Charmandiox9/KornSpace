@@ -1,6 +1,6 @@
 import type { UploadJob, UploadItem, UploadQueue, UploadQueueOptions, UploadValidationError, CancellationResult } from '../../types';
 
-export const maxUploadBytes = 100 * 1024 * 1024;
+export const maxUploadBytes = 1024 * 1024 * 1024;
 
 export function validateUpload(file: Pick<File, 'name' | 'size'>): UploadValidationError | null {
   if (file.size > maxUploadBytes) return 'tooLarge';
@@ -36,7 +36,7 @@ export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrenc
     });
     if (success) {
       jobs.delete(job.id);
-      await onUploaded().catch(() => undefined);
+      await onUploaded(job.folderId).catch(() => undefined);
     }
   }
 
@@ -46,8 +46,8 @@ export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrenc
     });
   }
 
-  function makeJob(id: string, file: File, folderId: string | null): UploadJob {
-    return { id, file, folderId, operationId: crypto.randomUUID(), epoch, controller: new AbortController(), cancelRequested: false };
+  function makeJob(id: string, file: File, folderId: string | null, destinationName: string): UploadJob {
+    return { id, file, folderId, destinationName, operationId: crypto.randomUUID(), epoch, controller: new AbortController(), cancelRequested: false };
   }
 
   function pump(): void {
@@ -89,12 +89,12 @@ export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrenc
       listeners.add(listener);
       return () => { listeners.delete(listener); };
     },
-    enqueue(files: File[], folderId: string | null = null): void {
+    enqueue(files: File[], folderId: string | null = null, destinationName = folderId ?? 'root'): void {
       const items = files.map((file): UploadItem => {
         const id = String(++nextId);
         const error = validateUpload(file);
-        if (!error) { const job = makeJob(id, file, folderId); jobs.set(id, job); pending.push(job); }
-        return { id, name: file.name, sizeBytes: file.size, loadedBytes: 0, completionWon: false, status: error ? 'invalid' : 'queued', error };
+        if (!error) { const job = makeJob(id, file, folderId, destinationName); jobs.set(id, job); pending.push(job); }
+        return { id, name: file.name, sizeBytes: file.size, loadedBytes: 0, completionWon: false, destinationName, status: error ? 'invalid' : 'queued', error };
       });
       snapshot = [...snapshot, ...items];
       publish();
@@ -119,7 +119,7 @@ export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrenc
       const item = snapshot.find((entry) => entry.id === id);
       const previous = jobs.get(id);
       if (!previous || !item || !['failed', 'cancelled'].includes(item.status) || active.has(id)) return;
-      const job = makeJob(id, previous.file, previous.folderId);
+      const job = makeJob(id, previous.file, previous.folderId, previous.destinationName);
       jobs.set(id, job);
       pending.push(job);
       update(id, { status: 'queued', loadedBytes: 0, error: null, completionWon: false });

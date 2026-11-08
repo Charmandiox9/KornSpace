@@ -18,6 +18,31 @@ export interface TranslationCatalog {
   mascotResume: string;
 
   folderDetails: string;
+  detailsTab: string;
+  activityTab: string;
+  itemDescription: string;
+  addDescription: string;
+  saveDescription: string;
+  noDescription: string;
+  peopleWithAccess: string;
+  manageAccess: string;
+  fileStorageUsed: string;
+  lastModified: string;
+  lastOpened: string;
+  createdDate: string;
+  activityEmpty: string;
+  activityOpened: string;
+  activityDescriptionUpdated: string;
+  activityUnknown: string;
+  folderType: string;
+  activityRenamed: string;
+  activityUploaded: string;
+  activityTrashed: string;
+  activityRestored: string;
+  activityCreated: string;
+  activityAccessGranted: string;
+  activityAccessUpdated: string;
+  activityAccessRevoked: string;
   shareOwner: string;
 
   colorNames: Record<'VIOLET' | 'BLUE' | 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED' | 'PINK' | 'GRAY', string>;
@@ -129,6 +154,13 @@ export interface TranslationCatalog {
   emptyFolder: string;
   folderSection: string;
   previewUnavailable: string;
+  videoPlay: string;
+  videoPause: string;
+  videoRewind: string;
+  videoForward: string;
+  videoPlaybackSpeed: string;
+  videoFullscreen: string;
+  videoVolume: string;
   loginMetaTitle: string;
   onboardingMetaTitle: string;
   socialLocale: string;
@@ -150,6 +182,7 @@ export interface TranslationCatalog {
   filesHeading: string;
   emptyTrash: string;
   deleteFile: string;
+  readOnlyAction: string;
   trashHeading: string;
   moveToTrash: string;
   deletePermanently: string;
@@ -213,12 +246,11 @@ export interface TranslationCatalog {
   notFoundDescription: string;
   returnHome: string;
   goBack: string;
-  uploadZone: string;
   selectFiles: string;
-  dropFilesHere: string;
   dropFilesNow: string;
   uploadMultipleHint: string;
   uploadsHeading: string;
+  uploadDestination: string;
   uploadWaiting: string;
   uploadInvalid: string;
   uploadEmpty: string;

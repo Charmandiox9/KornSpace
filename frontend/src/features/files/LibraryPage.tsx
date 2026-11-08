@@ -3,6 +3,7 @@ import { authenticatedFetch } from '@/lib/api-client';
 import type { LibraryPageProps, StoredFile } from '@/types';
 import { isStoredFile } from './is-stored-file';
 import { FilesPage } from './FilesPage';
+import { FILE_LIBRARY_QUERY } from '@/graphql/operations';
 
 function isLibraryFile(value: unknown): value is StoredFile {
   return isStoredFile(value) && typeof value.updatedAt === 'string' && typeof value.ownerName === 'string'
@@ -12,8 +13,6 @@ function isLibraryFile(value: unknown): value is StoredFile {
     && (typeof value.openedAt === 'string' || value.openedAt === null)
     && (value.permission === 'OWNER' || value.permission === 'READER' || value.permission === 'EDITOR');
 }
-
-const fields = 'id name contentType sizeBytes status checksum createdAt updatedAt deletedAt ownerId ownerName folderId folderName permission openedAt';
 
 export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: LibraryPageProps) {
   const { copy } = props;
@@ -32,7 +31,7 @@ export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: Li
     setBusy(true); setError('');
     void (async () => {
       try {
-        const response = await authenticatedFetch('/graphql', { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: `query { all: fileLibrary(filters: { shared: ${sharedOnly} }) { ${fields} } recent: fileLibrary(filters: { recent: true, shared: ${sharedOnly} }) { ${fields} } }` }) });
+        const response = await authenticatedFetch('/graphql', { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: FILE_LIBRARY_QUERY, variables: { shared: sharedOnly } }) });
         const payload: unknown = await response.json();
         if (!response.ok || typeof payload !== 'object' || payload === null || !('data' in payload) || typeof payload.data !== 'object' || payload.data === null) throw new Error();
         const data = payload.data as Record<string, unknown>;

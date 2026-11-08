@@ -124,6 +124,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
     const dropFolder = { id: 'drop-target', name: 'Drop destination', ownerId: user.id, parentId: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
     const emptyFolder = { ...dropFolder, id: 'empty-folder', name: 'Empty folder' };
     let emptyFolderExists = true;
+    let forceReaderPresentation = false;
     let folderDeleteAttempts = 0;
     const uploads = [];
     const itemPreferences = new Map();
@@ -177,9 +178,17 @@ test('session navigation and multiple uploads in a real browser with a simulated
           itemPreferences.set(key, { starred: false, shortcut: false, color: 'DEFAULT', id, kind, ...itemPreferences.get(key), ...JSON.parse(event.request.postData) }); status = 204;
         }
         else if (url.pathname === '/graphql') {
-          const query = JSON.parse(event.request.postData).query;
+          const graphQLRequest = JSON.parse(event.request.postData);
+          const query = graphQLRequest.query;
           const own = [...records, ...trashedRecords.map(file => ({ ...file, deletedAt: file.deletedAt ?? '2026-01-02T00:00:00.000Z' }))].filter(file => file.ownerId === user.id);
-          body = query.includes('storageUsage') ? { data: { storageUsage: { totalBytes: own.reduce((sum, file) => sum + file.sizeBytes, 0), trashBytes: own.filter(file => file.deletedAt).reduce((sum, file) => sum + file.sizeBytes, 0), files: own } } } : { data: { all: records, recent: records.filter(file => file.openedAt) } };
+          if (query.includes('folderContents')) {
+            listChecks += 1;
+            const folderId = graphQLRequest.variables?.parentId ?? null;
+            const folderView = (folder) => forceReaderPresentation ? { ...folder, permission: 'READER' } : { ...folder, permission: 'OWNER' };
+            body = { data: { folderContents: { folder: folderId ? folderView(dropFolder) : null, breadcrumbs: [], folders: folderId ? [] : [folderView(dropFolder), ...(emptyFolderExists ? [folderView(emptyFolder)] : [])], files: records.filter(record => (record.folderId ?? null) === folderId).map(file => forceReaderPresentation ? { ...file, permission: 'READER' } : file) } } };
+          } else if (query.includes('storageUsage')) {
+            body = { data: { storageUsage: { totalBytes: own.reduce((sum, file) => sum + file.sizeBytes, 0), trashBytes: own.filter(file => file.deletedAt).reduce((sum, file) => sum + file.sizeBytes, 0), files: own } } };
+          } else body = { data: { all: records, recent: records.filter(file => file.openedAt) } };
         }
         else if (event.request.method === 'GET' && url.pathname.endsWith('/recipients')) {
           const identifier = (url.searchParams.get('identifier') ?? '').toLowerCase();
@@ -228,7 +237,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
           else status = 404;
         }
         else if (url.pathname === '/api/files/trash' && event.request.method === 'GET') { body = trashedRecords; }
-        else if (url.pathname === '/api/folders') { listChecks += 1; const folderId = url.searchParams.get('parentId'); body = { folder: folderId ? dropFolder : null, breadcrumbs: [], folders: folderId ? [] : [dropFolder, ...(emptyFolderExists ? [emptyFolder] : [])], files: records.filter(record => (record.folderId ?? null) === folderId) }; }
+        else if (url.pathname === '/api/folders') { listChecks += 1; const folderId = url.searchParams.get('parentId'); const folderView = (folder) => forceReaderPresentation ? { ...folder, permission: 'READER' } : folder; body = { folder: folderId ? folderView(dropFolder) : null, breadcrumbs: [], folders: folderId ? [] : [folderView(dropFolder), ...(emptyFolderExists ? [folderView(emptyFolder)] : [])], files: records.filter(record => (record.folderId ?? null) === folderId).map(file => forceReaderPresentation ? { ...file, permission: 'READER' } : file) }; }
         else if (event.request.method === 'GET' && /^\/api\/files\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith('/trash')) { rawBody = '<script>window.previewExecuted = true</script> KornSpace text preview'; }
         else if (url.pathname.startsWith('/api/files/uploads/')) {
           const id = url.pathname.split('/').at(-1);
@@ -385,6 +394,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
       })()`);
       await until(() => records.some(record => record.name === 'global-drop.txt'), 'sidebar drop upload');
       assert.deepEqual(uploadDestinations.filter(item => item.name === 'global-drop.txt'), [{ name: 'global-drop.txt', folderId: null }]);
+      await until(() => evaluate('Array.from(document.querySelectorAll("[data-upload-notification]")).find(item => item.dataset.uploadName === "global-drop.txt")?.querySelector("[data-upload-destination]")?.textContent.includes("Mi Unidad")'), 'root destination shown in upload notification');
       await until(() => evaluate('Boolean(document.querySelector("[data-upload-folder-id]"))'), 'folder card after refresh');
       await evaluate(`(() => {
         const transfer = new DataTransfer();
@@ -398,6 +408,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await evaluate(`document.querySelector('[data-upload-folder-id] svg path').dispatchEvent(new DragEvent('drop', { dataTransfer: window.folderDropTransfer, bubbles: true, cancelable: true }))`);
       await until(() => records.some(record => record.name === 'folder-drop.txt'), 'folder drop upload');
       assert.deepEqual(uploadDestinations.filter(item => item.name === 'folder-drop.txt'), [{ name: 'folder-drop.txt', folderId: dropFolder.id }]);
+      await until(() => evaluate('Array.from(document.querySelectorAll("[data-upload-notification]")).find(item => item.dataset.uploadName === "folder-drop.txt")?.querySelector("[data-upload-destination]")?.textContent.includes("Drop destination")'), 'folder destination shown in upload notification');
       await until(() => evaluate('!document.querySelector("[data-file-drop-overlay]")'), 'drop indicator cleared');
       await until(() => evaluate('Boolean(document.querySelector("[data-upload-folder-id]"))'), 'folder card available');
       await evaluate('document.querySelector("[data-upload-folder-id]").click()');
@@ -405,6 +416,20 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await until(() => evaluate('document.querySelector("[aria-labelledby=files-heading]").textContent.includes("folder-drop.txt")'), 'file stored in target folder');
       await evaluate('document.querySelector("nav[aria-label=Ubicación] button").click()');
       await until(() => evaluate('document.querySelector("#workspace-title").textContent === "Mi Unidad"'), 'return to root');
+
+      forceReaderPresentation = true;
+      await evaluate('document.querySelector("[data-upload-folder-id=drop-target]").click()');
+      await until(() => evaluate('document.querySelector("#workspace-title").textContent === "Drop destination"'), 'open shared folder as reader');
+      await evaluate('document.querySelector("nav[aria-label=Ubicación] button").click()');
+      await until(() => evaluate('document.querySelector("#workspace-title").textContent === "Mi Unidad" && Boolean(document.querySelector("[data-upload-folder-id=drop-target]"))'), 'return to reader root');
+      await evaluate('document.querySelector("summary[aria-label=\"Acciones de la carpeta: Drop destination\"]").click()');
+      assert.equal(await evaluate('document.querySelector("summary[aria-label=\"Acciones de la carpeta: Drop destination\"]").parentElement.querySelector("button[aria-label*=Renombrar]").disabled'), true);
+      assert.equal(await evaluate('document.querySelector("summary[aria-label=\"Acciones de la carpeta: Drop destination\"]").parentElement.querySelector("button[aria-label*=Eliminar]").disabled'), true);
+      await evaluate('document.querySelector("summary[aria-label=\"Acciones de la carpeta: Drop destination\"]").click()');
+      await evaluate('document.querySelector("summary[aria-label=\"Acciones del archivo: global-drop.txt\"]").click()');
+      assert.equal(await evaluate('Array.from(document.querySelector("summary[aria-label=\"Acciones del archivo: global-drop.txt\"]").parentElement.querySelectorAll("button")).find(button => button.textContent.includes("Renombrar")).disabled'), true);
+      assert.equal(await evaluate('Array.from(document.querySelector("summary[aria-label=\"Acciones del archivo: global-drop.txt\"]").parentElement.querySelectorAll("button")).find(button => button.textContent.includes("Eliminar")).disabled'), true);
+      forceReaderPresentation = false;
     });
 
     const openFolderMenu = async (name) => {

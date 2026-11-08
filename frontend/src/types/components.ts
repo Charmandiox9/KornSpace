@@ -140,7 +140,7 @@ export interface FilesPageProps {
   initialTrash?: boolean;
   notice: string;
   apiUrl: (path: string) => string;
-  onUpload: (files: File[], folderId: string | null) => void;
+  onUpload: (files: File[], folderId: string | null, destinationName?: string) => void;
   onUploadDirectory: (files: File[]) => void;
   onNavigate: (folderId: string | null) => void;
   onMoveToTrash: (file: StoredFile) => void;
@@ -191,6 +191,8 @@ export interface ShareAccessListProps {
   copy: TranslationCatalog;
   refreshKey?: number;
   onChanged: () => Promise<void>;
+  showHeading?: boolean;
+  avatarOnly?: boolean;
 }
 
 export interface ItemOrganizeMenuProps {
