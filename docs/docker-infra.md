@@ -9,7 +9,7 @@
 | `redis` | Redis 7 con persistencia AOF. |
 | `localstack` | Emula S3 y SQS en el puerto `4566`. |
 | `terraform` | Espera LocalStack saludable y aprovisiona los recursos. |
-| `nginx` | Proxy para frontend, REST y GraphQL en el puerto `80`; acepta cargas de hasta 100 MiB. |
+| `nginx` | Proxy para frontend, REST y GraphQL en el puerto `80`; acepta cargas de hasta 1 GiB. |
 
 Terraform en `infra/terraform/localstack/` crea el bucket privado `kornspace-files` y la cola `kornspace-file-processing`. Se ejecuta automáticamente al levantar Compose. Para volver a aplicarlo tras cambiar Terraform:
 

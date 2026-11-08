@@ -54,7 +54,7 @@ La integración de Tailwind usa el plugin oficial `@tailwindcss/postcss` en `fro
 
 ## Carga de archivos
 
-`src/hooks/use-upload-queue.ts` conecta la vista con `src/features/files/upload-queue.ts`. La cola valida cada archivo antes del envío (hasta 100 MiB por archivo, tamaño mayor que cero y nombre válido) y mantiene hasta tres envíos simultáneos. Un archivo rechazado o un fallo de almacenamiento no detiene los demás. El selector sigue habilitado mientras hay envíos y permite añadir nuevos lotes.
+`src/hooks/use-upload-queue.ts` conecta la vista con `src/features/files/upload-queue.ts`. La cola valida cada archivo antes del envío (hasta 1 GiB por archivo, tamaño mayor que cero y nombre válido) y mantiene hasta tres envíos simultáneos. Un archivo rechazado o un fallo de almacenamiento no detiene los demás. El selector sigue habilitado mientras hay envíos y permite añadir nuevos lotes.
 
 Cada elemento muestra bytes enviados, porcentaje real y una barra de progreso accesible. `XMLHttpRequest.upload` mide el envío al servidor; el 100% no significa que S3 y PostgreSQL ya lo hayan confirmado. Hasta recibir la respuesta, el estado es «Confirmando guardado». La renovación de sesión se comparte con el cliente HTTP y conserva el mismo identificador de intento al repetir una petición rechazada por autenticación. Después de cada carga correcta se actualiza la lista; el procesamiento posterior se consulta mediante el refresco existente del listado.
 

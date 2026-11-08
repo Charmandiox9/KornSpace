@@ -35,7 +35,7 @@ Desde la raíz:
 
 Todas las rutas de archivos requieren JWT y sesión activa; el propietario siempre se toma de la identidad autenticada, nunca del cuerpo o la URL. Las respuestas tipadas de carga reflejan el estado: hasta 10 MiB queda `AVAILABLE` con checksum calculado; sobre 10 MiB queda `PROCESSING` sin checksum hasta que el worker lo procese. La ruta de salud y el inicio OAuth son públicos.
 
-El tamaño máximo predeterminado de archivo es 100 MiB (`FILE_MAX_SIZE_BYTES` puede ajustarlo; al cambiarlo también debe ajustarse el límite de Nginx). Al excederlo se devuelve HTTP 413. La solicitud inválida o vacía devuelve HTTP 400; una sesión ausente o inválida devuelve HTTP 401. Si S3, PostgreSQL o SQS no están disponibles, la API devuelve HTTP 503 y trata de eliminar el objeto/registro ya creado para evitar residuos. Nginx está configurado para aceptar hasta 100 MiB.
+El tamaño máximo predeterminado de archivo es 1 GiB (`FILE_MAX_SIZE_BYTES` puede ajustarlo; al cambiarlo también debe ajustarse el límite de Nginx y el proxy de Next.js). Al excederlo se devuelve HTTP 413. La solicitud inválida o vacía devuelve HTTP 400; una sesión ausente o inválida devuelve HTTP 401. Si S3, PostgreSQL o SQS no están disponibles, la API devuelve HTTP 503 y trata de eliminar el objeto/registro ya creado para evitar residuos. Nginx y el proxy de Next.js están configurados para aceptar hasta 1 GiB.
 
 ## Archivos grandes
 
