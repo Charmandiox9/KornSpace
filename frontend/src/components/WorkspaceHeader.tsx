@@ -31,7 +31,7 @@ const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-
  *   («Mi Unidad» o «Papelera»); con carpetas tendrá un elemento por ancestro.
  * - Cada acción solo se muestra si se pasa su callback ("cuando corresponda").
  */
-export function WorkspaceHeader({ copy, location, onNavigate, onUploadClick, onUploadFolderClick, onCreateFolder }: WorkspaceHeaderProps) {
+export function WorkspaceHeader({ dropTargetId, isDragging, copy, location, onNavigate, onUploadClick, onUploadFolderClick, onCreateFolder }: WorkspaceHeaderProps) {
   const actionMenuRef = useRef<HTMLDetailsElement>(null);
   const current = location[location.length - 1];
   const ancestors = location.slice(0, -1);
@@ -47,7 +47,8 @@ export function WorkspaceHeader({ copy, location, onNavigate, onUploadClick, onU
                 <li className="flex min-w-0 items-center gap-1" key={item.id ?? 'root'}>
                   <button
                     type="button"
-                    className={`min-h-6 max-w-[160px] cursor-pointer truncate rounded-md px-1 text-xs font-semibold text-accent hover:underline ${focusRing}`}
+                    data-upload-folder-id={item.id ?? ''}
+                    className={`${isDragging && dropTargetId === item.id ? 'bg-accent-soft ring-2 ring-accent' : ''} min-h-6 max-w-[160px] cursor-pointer truncate rounded-md px-1 text-xs font-semibold text-accent hover:underline ${focusRing}`}
                     onClick={() => onNavigate?.(item.id)}
                     disabled={!onNavigate}
                   >
@@ -56,7 +57,7 @@ export function WorkspaceHeader({ copy, location, onNavigate, onUploadClick, onU
                   <span aria-hidden="true">/</span>
                 </li>
               ))}
-              <li className="min-w-0 max-w-[160px] truncate px-1 font-semibold text-ink" aria-current="page">{current.name}</li>
+              <li data-upload-folder-id={current.id ?? ''} className="min-w-0 max-w-[160px] truncate px-1 font-semibold text-ink" aria-current="page">{current.name}</li>
             </ol>
           </nav>
         )}
@@ -70,7 +71,7 @@ export function WorkspaceHeader({ copy, location, onNavigate, onUploadClick, onU
       {(onCreateFolder || onUploadClick) && (
         <div className="flex shrink-0 items-center gap-2">
           <details ref={actionMenuRef} className="group relative">
-            <summary className={`inline-flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border-0 bg-linear-to-br from-accent to-secondary px-3.5 text-[13px] font-semibold text-white shadow-md shadow-accent/25 transition duration-200 hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 motion-reduce:transform-none motion-reduce:transition-none ${focusRing}`}>
+            <summary className={`inline-flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border-0 bg-linear-to-br from-accent to-secondary px-3.5 text-[13px] font-semibold text-white shadow-md shadow-accent/25 transition-colors duration-150 hover:brightness-110 motion-reduce:transform-none motion-reduce:transition-none ${focusRing}`}>
               <PlusIcon />
               <span className="max-[420px]:sr-only">{copy.newAction}</span>
               <svg className="size-3.5 transition-transform group-open:rotate-180 motion-reduce:transition-none" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3 6 5 5 5-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>

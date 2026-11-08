@@ -30,6 +30,8 @@ export interface LocationItem {
 }
 
 export interface WorkspaceHeaderProps {
+  dropTargetId?: string | null;
+  isDragging?: boolean;
   copy: TranslationCatalog;
   /** De la raíz a la carpeta actual; el último elemento es la ubicación actual. */
   location: LocationItem[];

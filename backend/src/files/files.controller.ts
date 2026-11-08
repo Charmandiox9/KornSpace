@@ -1,5 +1,7 @@
+import { MoveResourceDto } from '../common/dto/move-resource.dto';
 import {
   BadRequestException,
+  Body,
   Controller,
   Delete,
   Get,
@@ -16,7 +18,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { ApiAcceptedResponse, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPartialContentResponse, ApiPayloadTooLargeResponse, ApiProduces, ApiProperty, ApiPropertyOptional, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse, ApiUnsupportedMediaTypeResponse } from '@nestjs/swagger';
+import { ApiNoContentResponse, ApiAcceptedResponse, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPartialContentResponse, ApiPayloadTooLargeResponse, ApiProduces, ApiProperty, ApiPropertyOptional, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse, ApiUnsupportedMediaTypeResponse } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { FileLibraryService } from './file-library.service';
 import { FileRangeNotSatisfiableError, FilesService } from './files.service';
@@ -80,6 +82,17 @@ const previewContentTypes = new Set([
 @ApiTags('Files')
 export class FilesController {
   constructor(private readonly filesService: FilesService, @Optional() private readonly uploads?: ManagedUploadsService, @Optional() private readonly library?: FileLibraryService) {}
+
+  @Post(':id/move')
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: 'Elemento movido o ya ubicado en el destino.' })
+  @ApiOperation({ summary: 'Mueve a otra carpeta conservando identidad, contenido y propietario; el destino actual no genera actividad' })
+  @ApiForbiddenResponse({ description: 'Origen o destino sin permiso de escritura.' })
+  @ApiConflictResponse({ description: 'Nombre repetido o movimiento concurrente; no se modifica el elemento.' })
+  @ApiBadRequestResponse({ description: 'Destino inválido o ciclo entre carpetas.' })
+  move(@Param('id', new ParseUUIDPipe()) id: string, @Body() input: MoveResourceDto, @CurrentUser() user: AuthenticatedUserContext): Promise<void> {
+    return this.library!.move(id, user.userId, input.destinationId);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Lista los archivos del usuario autenticado' })

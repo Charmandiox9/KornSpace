@@ -1,3 +1,4 @@
+import { MoveResourceDto } from '../common/dto/move-resource.dto';
 import { Body, Controller, Delete, HttpCode, Param, Patch, Put, Get, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import { IsOptional, IsString, IsUUID, MaxLength, MinLength, Matches } from 'class-validator';
@@ -92,6 +93,17 @@ class FolderEditorResponseDto {
 @ApiServiceUnavailableResponse({ description: 'Operación fallida; se puede reintentar.' })
 export class FoldersController {
   constructor(private readonly foldersService: FoldersService) {}
+
+  @Post(':id/move')
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: 'Elemento movido o ya ubicado en el destino.' })
+  @ApiOperation({ summary: 'Mueve a otra carpeta conservando identidad, contenido y propietario; el destino actual no genera actividad' })
+  @ApiForbiddenResponse({ description: 'Origen o destino sin permiso de escritura.' })
+  @ApiConflictResponse({ description: 'Nombre repetido o movimiento concurrente; no se modifica el elemento.' })
+  @ApiBadRequestResponse({ description: 'Destino inválido o ciclo entre carpetas.' })
+  move(@Param('id', new ParseUUIDPipe()) id: string, @Body() input: MoveResourceDto, @CurrentUser() user: AuthenticatedUserContext): Promise<void> {
+    return this.foldersService.move(id, user.userId, input.destinationId);
+  }
 
   @Put(':id/description')
   @ApiOperation({ summary: 'Actualiza la descripción de una carpeta accesible como propietario o editor' })

@@ -35,6 +35,8 @@ export interface TranslationCatalog {
   activityDescriptionUpdated: string;
   activityUnknown: string;
   folderType: string;
+  moveToFolder: string;
+  activityMoved: string;
   activityRenamed: string;
   activityUploaded: string;
   activityTrashed: string;

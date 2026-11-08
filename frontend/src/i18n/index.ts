@@ -21,6 +21,8 @@ export const translations = {
     mascotResume: 'Reanudar movimiento',
 
     folderDetails: 'Información de la carpeta',
+    moveToFolder: 'Mover a',
+    activityMoved: 'Elemento movido',
     detailsTab: 'Detalles', activityTab: 'Actividad', itemDescription: 'Descripción', addDescription: 'Añadir descripción', saveDescription: 'Guardar descripción', noDescription: 'Añade una descripción para dar contexto.', peopleWithAccess: 'Quién tiene acceso', manageAccess: 'Gestionar acceso', fileStorageUsed: 'Almacenamiento usado', lastModified: 'Última modificación', lastOpened: 'Última vez abierto', createdDate: 'Fecha de creación', activityEmpty: 'Todavía no hay actividad.', activityOpened: 'Abrió este elemento', activityDescriptionUpdated: 'Actualizó la descripción', activityRenamed: 'Renombró este elemento', activityUploaded: 'Subió este archivo', activityTrashed: 'Envió a la papelera', activityRestored: 'Restauró este elemento', activityCreated: 'Creó esta carpeta', activityAccessGranted: 'Compartió este elemento', activityAccessUpdated: 'Cambió los permisos', activityAccessRevoked: 'Quitó un acceso', activityUnknown: 'Realizó una acción', folderType: 'Carpeta',
     shareOwner: 'Propietario',
 
@@ -267,6 +269,8 @@ export const translations = {
     mascotResume: 'Resume motion',
 
     folderDetails: 'Folder information',
+    moveToFolder: 'Move to',
+    activityMoved: 'Item moved',
     detailsTab: 'Details', activityTab: 'Activity', itemDescription: 'Description', addDescription: 'Add description', saveDescription: 'Save description', noDescription: 'Add a description to provide context.', peopleWithAccess: 'Who has access', manageAccess: 'Manage access', fileStorageUsed: 'Storage used', lastModified: 'Last modified', lastOpened: 'Last opened', createdDate: 'Created', activityEmpty: 'No activity yet.', activityOpened: 'Opened this item', activityDescriptionUpdated: 'Updated the description', activityRenamed: 'Renamed this item', activityUploaded: 'Uploaded this file', activityTrashed: 'Moved this item to trash', activityRestored: 'Restored this item', activityCreated: 'Created this folder', activityAccessGranted: 'Shared this item', activityAccessUpdated: 'Changed permissions', activityAccessRevoked: 'Removed access', activityUnknown: 'Performed an action', folderType: 'Folder',
     shareOwner: 'Owner',
 
