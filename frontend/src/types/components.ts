@@ -30,6 +30,8 @@ export interface LocationItem {
 }
 
 export interface WorkspaceHeaderProps {
+  dropTargetId?: string | null;
+  isDragging?: boolean;
   copy: TranslationCatalog;
   /** De la raíz a la carpeta actual; el último elemento es la ubicación actual. */
   location: LocationItem[];
@@ -140,7 +142,7 @@ export interface FilesPageProps {
   initialTrash?: boolean;
   notice: string;
   apiUrl: (path: string) => string;
-  onUpload: (files: File[], folderId: string | null) => void;
+  onUpload: (files: File[], folderId: string | null, destinationName?: string) => void;
   onUploadDirectory: (files: File[]) => void;
   onNavigate: (folderId: string | null) => void;
   onMoveToTrash: (file: StoredFile) => void;
@@ -191,6 +193,8 @@ export interface ShareAccessListProps {
   copy: TranslationCatalog;
   refreshKey?: number;
   onChanged: () => Promise<void>;
+  showHeading?: boolean;
+  avatarOnly?: boolean;
 }
 
 export interface ItemOrganizeMenuProps {

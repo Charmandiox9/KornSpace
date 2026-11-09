@@ -39,3 +39,5 @@ Consulta la guía de [puesta en marcha](docs/getting-started.md) para configurar
 Frontend y backend no montan código ni volúmenes de `node_modules`. Las dependencias, el cliente Prisma y el código compilado están incluidos en las imágenes. Tras cambiar código, dependencias o esquema Prisma (con su migración), ejecuta `docker compose up --build -d`. Reiniciar un contenedor no reconstruye su imagen.
 
 Para desarrollo, ejecuta `pnpm install` y `pnpm dev` desde la raíz. Este comando genera Prisma y arranca Next.js y NestJS con recarga automática. Puedes levantar la infraestructura con `docker compose up -d redis terraform`. Configura `.env` con los endpoints accesibles desde el equipo (`REDIS_HOST=localhost`, S3/SQS en `http://localhost:4566`, URL de la cola accesible desde el equipo y `FRONTEND_ORIGIN=http://localhost:3001`).
+
+Consulta [alternar bases y copiar registros nuevos a Neon](docs/database-switching.md) para seleccionar la conexión y ejecutar la copia incremental.

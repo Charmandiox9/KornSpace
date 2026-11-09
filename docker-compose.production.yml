@@ -7,6 +7,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD para producción}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     expose:
       - "5432"
     healthcheck:
@@ -29,7 +31,7 @@ services:
       GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:?Define GOOGLE_OAUTH_REDIRECT_URI para producción}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?Define FRONTEND_ORIGIN para producción}
       JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET para producción}
-      AUTH_COOKIE_SECURE: "true"
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
     depends_on:
       postgres:
         condition: service_healthy

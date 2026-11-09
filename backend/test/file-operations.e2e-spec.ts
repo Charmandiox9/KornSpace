@@ -31,7 +31,7 @@ interface TestWhere {
 
 function harness() {
   const now = new Date();
-  const file: StoredFile = { id: '11111111-1111-4111-8111-111111111111', ownerId: 'owner', folderId: null, name: 'one.txt', contentType: 'text/plain', sizeBytes: 4n, s3Key: 'files/one', checksum: 'hash', status: 'AVAILABLE', createdAt: now, updatedAt: now, deletedAt: null, deletionPending: false };
+  const file: StoredFile = { id: '11111111-1111-4111-8111-111111111111', ownerId: 'owner', folderId: null, name: 'one.txt', description: null, contentType: 'text/plain', sizeBytes: 4n, s3Key: 'files/one', checksum: 'hash', status: 'AVAILABLE', createdAt: now, updatedAt: now, deletedAt: null, deletionPending: false };
   const records = [file];
   const recipients = [
     { id: '44444444-4444-4444-8444-444444444444', username: 'newperson', email: 'new@example.test', name: 'New Person' },
@@ -76,10 +76,12 @@ function harness() {
       const index = records.findIndex((record) => matches(record, where)); if (index >= 0) records.splice(index, 1); return { count: index >= 0 ? 1 : 0 };
     },
   };
-  const prisma = { user: { findMany: async ({ where }: { where: { id: { not: string }; email?: { equals: string }; username?: { equals: string } } }) => {
+  const prisma = { user: {
+    findUnique: async () => ({ name: 'Owner', email: 'owner@example.test' }),
+    findMany: async ({ where }: { where: { id: { not: string }; email?: { equals: string }; username?: { equals: string } } }) => {
     recipientQueries += 1;
     return recipients.filter((user) => user.id !== where.id.not && (where.email ? user.email.toLowerCase() === where.email.equals.toLowerCase() : user.username.toLowerCase() === where.username?.equals.toLowerCase()));
-  } }, filePermission: {
+  } }, resourceActivity: { create: async () => ({}), updateMany: async () => ({ count: 0 }), findMany: async () => [], deleteMany: async () => ({ count: 0 }) }, filePermission: {
     findMany: async () => Array.from(grants, ([userId, role]) => ({ userId, role, user: { email: recipients.find((user) => user.id === userId)?.email ?? userId + '@example.test', username: recipients.find((user) => user.id === userId)?.username ?? userId } })),
     updateMany: async ({ where, data }: { where: { userId: string }; data: { role: 'READER' | 'EDITOR' } }) => { if (!grants.has(where.userId)) return { count: 0 }; grants.set(where.userId, data.role); return { count: 1 }; },
     upsert: async ({ create }: { create: { userId: string; role: 'READER' | 'EDITOR' } }) => { grants.set(create.userId, create.role); return { userId: create.userId, role: create.role }; },

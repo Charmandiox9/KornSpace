@@ -3,7 +3,7 @@ import type { ActionButtonProps } from '@/types';
 export function ActionButton({ ariaLabel, children, onClick, pressed, title }: ActionButtonProps) {
   return (
     <button
-      className="inline-flex min-h-[46px] w-full cursor-pointer items-center justify-start gap-[9px] rounded-xl border border-line bg-surface px-[13px] text-[13px] font-medium text-ink transition duration-150 hover:-translate-y-px hover:border-accent-line hover:bg-accent-soft motion-reduce:transition-none"
+      className="inline-flex min-h-[46px] w-full cursor-pointer items-center justify-start gap-[9px] rounded-xl border border-line bg-surface px-[13px] text-[13px] font-medium text-ink transition-colors duration-150 hover:border-accent-line hover:bg-accent-soft aria-pressed:border-accent-line aria-pressed:bg-accent-soft aria-pressed:text-accent motion-reduce:transition-none"
       type="button"
       aria-label={ariaLabel}
       aria-pressed={pressed}

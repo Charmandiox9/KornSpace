@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3001",
     "test:browser": "node --test tests/e2e/browser.test.mjs",
-    "test:unit": "tsc --module ES2022 --moduleResolution bundler --target ES2022 --strict --skipLibCheck --rootDir src --outDir .test-dist src/i18n/index.ts src/features/auth/session-destination.ts src/features/auth/session-store.ts src/features/files/upload-queue.ts src/features/files/upload-toast-presentation.ts src/lib/api-client.ts src/lib/upload-request.ts src/features/files/item-organization.ts src/lib/mascot-timeline.ts src/lib/mascot-spatial.ts src/lib/mascot-gait.ts src/lib/menu-placement.ts && node --test tests/*.test.mjs",
+    "test:unit": "tsc --module ES2022 --moduleResolution bundler --target ES2022 --strict --skipLibCheck --rootDir src --outDir .test-dist src/i18n/index.ts src/features/auth/session-destination.ts src/features/auth/session-store.ts src/features/files/upload-queue.ts src/features/files/upload-toast-presentation.ts src/lib/api-client.ts src/lib/upload-request.ts src/features/files/item-organization.ts src/lib/mascot-timeline.ts src/lib/mascot-spatial.ts src/lib/mascot-gait.ts src/lib/menu-placement.ts src/features/files/is-folder-contents.ts && node --test tests/*.test.mjs",
     "test": "pnpm test:unit"
   },
   "dependencies": {

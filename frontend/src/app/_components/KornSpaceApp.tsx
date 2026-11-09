@@ -1,6 +1,6 @@
 'use client';
 
-import type { FileStatusEvent, StoredFile, StoredFolder, FilesPageProps, RestoreConflict } from '@/types';
+import type { FileStatusEvent, StoredFile, StoredFolder, FilesPageProps, FolderContents, RestoreConflict } from '@/types';
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -16,7 +16,7 @@ import { StoragePage } from '@/features/files/StoragePage';
 import { FileConflictDialog } from '@/features/files/FileConflictDialog';
 import { UploadNotifications } from '@/features/files/UploadNotifications';
 import { isStoredFile } from '@/features/files/is-stored-file';
-import { isFolderContents, isStoredFolder } from '@/features/files/is-folder-contents';
+import { readFolderContentsQuery, isStoredFolder } from '@/features/files/is-folder-contents';
 import { authenticatedFetch, apiUrl } from '@/lib/api-client';
 import { translations } from '@/i18n';
 import { usePreferences } from '@/hooks/use-preferences';
@@ -26,9 +26,22 @@ import { useItemPreferences } from '@/hooks/use-item-preferences';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import { getSessionDestination } from '@/features/auth/session-destination';
 import { sileo } from 'sileo';
+import { FOLDER_CONTENTS_QUERY } from '@/graphql/operations';
 
 // Vistas del espacio de trabajo que comparten el shell con sidebar (todas viven bajo la ruta '/files' de sesión).
 const WORKSPACE_PATHS = ['/home', '/files', '/trash', '/shared', '/starred', '/storage'];
+async function fetchFolderContents(parentId: string | null): Promise<FolderContents> {
+  const response = await authenticatedFetch('/graphql', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: FOLDER_CONTENTS_QUERY, variables: { parentId } }),
+  });
+  if (!response.ok) throw new Error('Folder query failed');
+  const payload: unknown = await response.json();
+  const contents = readFolderContentsQuery(payload);
+  if (!contents) throw new Error('Invalid folder query response');
+  return contents;
+}
 
 function setMetaContent(attribute: 'name' | 'property', identifier: string, value: string): void {
   let element = document.head.querySelector<HTMLMetaElement>(`meta[${attribute}="${identifier}"]`);
@@ -71,21 +84,22 @@ export default function KornSpaceApp() {
   const { enabled: motionEnabled } = useMotionPreferences();
   useAppMotion(motionRoot, `${pathname}:${currentFolderId ?? 'root'}`, motionEnabled);
   const refreshVersion = useRef(0);
+  const hasLoadedFiles = useRef(false);
   const copy = translations[language];
-  const { preferences: itemPreferences, updatePreference: onOrganize } = useItemPreferences(user?.id, copy.organizationError, libraryVersion);
+  const { preferences: itemPreferences, updatePreference: onOrganize } = useItemPreferences(user?.id, copy.organizationError);
   const route = getSessionDestination(authStatus, Boolean(user?.username));
 
-  const refreshFiles = useCallback(async (includeTrash = true, folderId: string | null = currentFolderId): Promise<void> => {
+  const refreshFiles = useCallback(async (includeTrash = false, folderId: string | null = currentFolderId): Promise<void> => {
     if (!user?.id) return;
+    if (pathname === '/home' || pathname === '/shared') {
+      setLibraryVersion((value) => value + 1);
+      return;
+    }
     const version = ++refreshVersion.current;
-    setIsLoadingFiles(true);
+    if (!hasLoadedFiles.current) setIsLoadingFiles(true);
     setNotice('');
     try {
-      const folderQuery = folderId ? `?parentId=${encodeURIComponent(folderId)}` : '';
-      const filesResponse = await authenticatedFetch(`/api/folders${folderQuery}`);
-      if (!filesResponse.ok) throw new Error(copy.loadError);
-      const filesPayload: unknown = await filesResponse.json();
-      if (!isFolderContents(filesPayload)) throw new Error(copy.loadError);
+      const filesPayload = await fetchFolderContents(folderId);
       let trashPayload: unknown;
       if (includeTrash) {
         const trashResponse = await authenticatedFetch('/api/files/trash');
@@ -94,6 +108,7 @@ export default function KornSpaceApp() {
         if (!Array.isArray(trashPayload) || !trashPayload.every(isStoredFile)) throw new Error(copy.loadError);
       }
       if (version === refreshVersion.current) {
+        hasLoadedFiles.current = true;
         setLibraryVersion((value) => value + 1);
         setFiles(filesPayload.files);
         setFolders(filesPayload.folders);
@@ -104,10 +119,15 @@ export default function KornSpaceApp() {
     } catch {
       if (version === refreshVersion.current) setNotice(copy.loadError);
     } finally {
-      if (version === refreshVersion.current) setIsLoadingFiles(false);
+      if (version === refreshVersion.current) {
+        hasLoadedFiles.current = true;
+        setIsLoadingFiles(false);
+      }
     }
-  }, [copy.loadError, currentFolderId, user?.id]);
-  const { queue, enqueue, cancelItem, retryItem, conflict, resolveConflict } = useUploadQueue(() => refreshFiles(false), user?.id);
+  }, [copy.loadError, currentFolderId, pathname, user?.id]);
+  const refreshFilesRef = useRef(refreshFiles);
+  refreshFilesRef.current = refreshFiles;
+  const { queue, enqueue, cancelItem, retryItem, conflict, resolveConflict } = useUploadQueue((folderId) => folderId === currentFolderId ? refreshFiles(false, folderId) : Promise.resolve(), user?.id);
   async function mutateFile(path: string, method: 'POST' | 'DELETE'): Promise<void> {
     try {
       const response = await authenticatedFetch(path, { method });
@@ -123,7 +143,7 @@ export default function KornSpaceApp() {
       const title = path.split('?')[0].endsWith('/trash') ? copy.fileMovedToTrash
         : path.split('?')[0].endsWith('/restore') ? copy.fileRestored : copy.filePermanentlyDeleted;
       sileo.success({ title, duration: 4000 });
-      await refreshFiles();
+      await refreshFiles(pathname === '/trash');
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : copy.fileActionFailed;
       setNotice(message);
@@ -150,15 +170,13 @@ export default function KornSpaceApp() {
     const rootParentId = currentFolderId;
     const folderCache = new Map<string, string>();
     const uploadsByFolder = new Map<string | null, File[]>();
+    const uploadFolderNames = new Map<string | null, string>();
 
     async function getOrCreateFolder(parentId: string | null, name: string): Promise<string> {
       const cacheKey = `${parentId ?? 'root'}\u0000${name}`;
       const cachedId = folderCache.get(cacheKey);
       if (cachedId) return cachedId;
-      const parentQuery = parentId ? `?parentId=${encodeURIComponent(parentId)}` : '';
-      const contentsResponse = await authenticatedFetch(`/api/folders${parentQuery}`);
-      const contentsPayload: unknown = contentsResponse.ok ? await contentsResponse.json() : null;
-      if (!isFolderContents(contentsPayload)) throw new Error(copy.folderUploadFailed);
+      const contentsPayload = await fetchFolderContents(parentId);
       const existingFolder = contentsPayload.folders.find((folder) => folder.name === name);
       if (existingFolder) {
         folderCache.set(cacheKey, existingFolder.id);
@@ -171,14 +189,11 @@ export default function KornSpaceApp() {
         body: JSON.stringify({ name, parentId }),
       });
       if (createResponse.status === 409) {
-        const retryResponse = await authenticatedFetch(`/api/folders${parentQuery}`);
-        const retryPayload: unknown = retryResponse.ok ? await retryResponse.json() : null;
-        if (isFolderContents(retryPayload)) {
-          const racedFolder = retryPayload.folders.find((folder) => folder.name === name);
-          if (racedFolder) {
-            folderCache.set(cacheKey, racedFolder.id);
-            return racedFolder.id;
-          }
+        const retryPayload = await fetchFolderContents(parentId).catch(() => null);
+        const racedFolder = retryPayload?.folders.find((folder) => folder.name === name);
+        if (racedFolder) {
+          folderCache.set(cacheKey, racedFolder.id);
+          return racedFolder.id;
         }
       }
       if (!createResponse.ok) throw new Error(copy.folderUploadFailed);
@@ -196,8 +211,9 @@ export default function KornSpaceApp() {
         const groupedFiles = uploadsByFolder.get(folderId) ?? [];
         groupedFiles.push(file);
         uploadsByFolder.set(folderId, groupedFiles);
+        uploadFolderNames.set(folderId, pathSegments.length > 1 ? pathSegments[pathSegments.length - 2] ?? copy.myDrive : currentFolder?.name ?? copy.myDrive);
       }
-      for (const [folderId, groupedFiles] of uploadsByFolder) enqueue(groupedFiles, folderId);
+      for (const [folderId, groupedFiles] of uploadsByFolder) enqueue(groupedFiles, folderId, uploadFolderNames.get(folderId) ?? copy.myDrive);
       setNotice('');
       sileo.success({ title: copy.folderQueued, duration: 4000 });
       await refreshFiles(false, rootParentId);
@@ -225,6 +241,7 @@ export default function KornSpaceApp() {
       setBreadcrumbs([]);
       setCurrentFolderId(null);
       setTrash([]);
+      hasLoadedFiles.current = false;
     }
     return () => { refreshVersion.current += 1; };
   }, [authStatus, user?.id]);
@@ -293,8 +310,8 @@ export default function KornSpaceApp() {
   }
 
   useEffect(() => {
-    if (authStatus === 'authenticated' && user?.username) void refreshFiles();
-  }, [authStatus, refreshFiles, user?.username]);
+    if (authStatus === 'authenticated' && user?.username && pathname !== '/home' && pathname !== '/shared') void refreshFiles(pathname === '/trash');
+  }, [authStatus, pathname, refreshFiles, user?.username]);
 
   useEffect(() => {
     if (authStatus !== 'authenticated' || !user?.username || !['/files', '/trash'].includes(pathname)) return undefined;
@@ -313,7 +330,7 @@ export default function KornSpaceApp() {
       socket = new WebSocket(`${backend}/api/files/events`);
       socket.addEventListener('open', () => {
         retryDelay = 500;
-        if (hasConnected) void refreshFiles(false);
+        if (hasConnected) void refreshFilesRef.current(false);
         hasConnected = true;
       });
       socket.addEventListener('message', (event) => {
@@ -324,7 +341,7 @@ export default function KornSpaceApp() {
         if (message.type === 'file.status' && typeof message.fileId === 'string'
           && (message.status === 'AVAILABLE' || message.status === 'FAILED')) {
           if (eventRefreshTimer !== undefined) window.clearTimeout(eventRefreshTimer);
-          eventRefreshTimer = window.setTimeout(() => void refreshFiles(false), 100);
+          eventRefreshTimer = window.setTimeout(() => void refreshFilesRef.current(false), 100);
         }
       });
       socket.addEventListener('close', () => {
@@ -341,7 +358,7 @@ export default function KornSpaceApp() {
       if (eventRefreshTimer !== undefined) window.clearTimeout(eventRefreshTimer);
       socket?.close();
     };
-  }, [authStatus, pathname, refreshFiles, user?.username]);
+  }, [authStatus, pathname, user?.username]);
 
   useLayoutEffect(() => {
     const isLogin = route === '/login';
@@ -392,12 +409,12 @@ export default function KornSpaceApp() {
     itemPreferences, onOrganize,
     userId: user?.id,
     copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, isLoading: isLoadingFiles,
-    initialTrash: pathname === '/trash', notice, apiUrl, onUpload: enqueue,
+    initialTrash: pathname === '/trash', notice, apiUrl, onUpload: (selectedFiles, folderId, destinationName) => enqueue(selectedFiles, folderId, destinationName ?? copy.myDrive),
     onUploadDirectory: (selectedFiles) => void uploadDirectory(selectedFiles), onNavigate: navigateToFolder,
     onMoveToTrash: (file) => void mutateFile(`/api/files/${encodeURIComponent(file.id)}/trash`, 'POST'),
     onDeletePermanent: (id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/permanent`, 'DELETE'),
     onRestore: (id) => void mutateFile(`/api/files/${encodeURIComponent(id)}/restore`, 'POST'),
-    onCreateFolder: createFolder, onChanged: () => refreshFiles(),
+    onCreateFolder: createFolder, onChanged: () => refreshFiles(pathname === '/trash'),
   };
 
   return (

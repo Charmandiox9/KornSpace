@@ -10,6 +10,8 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
 import { SessionJwtGuard } from '../src/auth/session-jwt.guard';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { GqlExecutionContext, GraphQLModule } from '@nestjs/graphql';
+import { ApolloDriver, type ApolloDriverConfig } from '@nestjs/apollo';
 
 test('application mounts folder routes and includes them in Swagger', async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -54,10 +56,12 @@ test('application mounts folder routes and includes them in Swagger', async () =
 });
 
 test('folder REST endpoints authenticate, validate input, navigate nested folders, and isolate owners', async () => {
-  const folders: Array<{ id: string; name: string; ownerId: string; parentId: string | null; createdAt: Date; updatedAt: Date }> = [];
+  const folders: Array<{ id: string; name: string; description: string | null; ownerId: string; parentId: string | null; createdAt: Date; updatedAt: Date }> = [];
   let nextId = 0;
   const prisma = {
     folderPermission: { findMany: async () => [], findUnique: async () => null },
+    user: { findUnique: async () => ({ name: 'Owner', email: 'owner@example.test' }) },
+    resourceActivity: { create: async () => ({}), findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
     folder: {
       findUnique: async ({ where }: { where: { id: string } }) => folders.find((folder) => folder.id === where.id) ?? null,
       findFirst: async ({ where }: { where: { id: string; ownerId: string } }) =>
@@ -69,7 +73,7 @@ test('folder REST endpoints authenticate, validate input, navigate nested folder
           throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
         }
         const now = new Date('2026-11-05T12:00:00.000Z');
-        const folder = { ...data, id: `f00d0000-0000-4000-8000-${String(++nextId).padStart(12, '0')}`, createdAt: now, updatedAt: now };
+        const folder = { ...data, description: null, id: `f00d0000-0000-4000-8000-${String(++nextId).padStart(12, '0')}`, createdAt: now, updatedAt: now };
         folders.push(folder);
         return folder;
       },
@@ -217,4 +221,63 @@ test('HTTP readers inherit access through folder descendants while editors can r
     assert.equal((await fetch(base + '/folders?parentId=' + h.childId)).status, 404);
     assert.equal((await patch('/files/' + h.fileId)).status, 404);
   } finally { await app.close(); }
+});
+
+test('GraphQL folderContents matches REST access for owners, readers, editors, and outsiders', async () => {
+  const { inheritanceHarness } = await import('./permission-inheritance.harness');
+  const { FoldersResolver } = await import('../src/folders/folders.resolver');
+  const h = inheritanceHarness();
+  h.folderGrants.set(h.rootId + ':reader', 'READER');
+  h.folderGrants.set(h.rootId + ':editor', 'EDITOR');
+  const moduleRef = await Test.createTestingModule({
+    imports: [GraphQLModule.forRoot<ApolloDriverConfig>({
+      driver: ApolloDriver,
+      autoSchemaFile: true,
+      context: ({ req }: { req: { headers: Record<string, string | undefined> } }) => ({ req }),
+    })],
+    providers: [FoldersResolver, { provide: FoldersService, useValue: h.service }],
+  }).overrideGuard(SessionJwtGuard).useValue({
+    canActivate: (context: import('@nestjs/common').ExecutionContext) => {
+      const request = GqlExecutionContext.create(context).getContext<{ req: { headers: Record<string, string | undefined>; authContext?: { userId: string } } }>().req;
+      const userId = request.headers['x-test-user'];
+      if (!userId) throw new UnauthorizedException();
+      request.authContext = { userId };
+      return true;
+    },
+  }).compile();
+  const app = moduleRef.createNestApplication({ logger: false });
+  await app.listen(0, '127.0.0.1');
+  try {
+    const address = app.getHttpServer().address() as AddressInfo;
+    const endpoint = `http://127.0.0.1:${address.port}/graphql`;
+    const query = `query FolderContents($parentId: ID!) {
+      folderContents(parentId: $parentId) {
+        folder { id name permission }
+        folders { id name permission parentId }
+        files { id name contentType sizeBytes status ownerId permission }
+      }
+    }`;
+    async function request(userId: string | undefined) {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(userId ? { 'x-test-user': userId } : {}) },
+        body: JSON.stringify({ query, variables: { parentId: h.childId } }),
+      });
+      return response.json() as Promise<{ data?: { folderContents: { folder: { id: string; permission: string }; files: Array<Record<string, unknown>> } | null }; errors?: Array<{ extensions?: { code?: string } }> }>;
+    }
+
+    const owner = (await request('owner')).data!.folderContents!;
+    assert.equal(owner.folder.permission, 'OWNER');
+    assert.equal(owner.files[0]?.id, h.fileId);
+    assert.equal('s3Key' in owner.files[0]!, false);
+    assert.equal('url' in owner.files[0]!, false);
+    assert.equal((await request('reader')).data!.folderContents!.files[0]?.permission, 'READER');
+    assert.equal((await request('editor')).data!.folderContents!.files[0]?.permission, 'EDITOR');
+    const stranger = await request('stranger');
+    assert.equal(stranger.data?.folderContents ?? null, null);
+    assert.ok(stranger.errors?.length);
+    assert.ok((await request(undefined)).errors?.length);
+  } finally {
+    await app.close();
+  }
 });

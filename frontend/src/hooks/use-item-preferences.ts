@@ -10,7 +10,7 @@ function isPreference(value: unknown): value is ItemPreference {
   const row = value as Record<string, unknown>;
   return typeof row.id === 'string' && (row.kind === 'files' || row.kind === 'folders') && typeof row.starred === 'boolean' && typeof row.shortcut === 'boolean' && typeof row.color === 'string' && Object.hasOwn(itemColors, row.color) && (row.kind === 'files' ? isStoredFile(row.file) : isStoredFolder(row.folder));
 }
-export function useItemPreferences(userId: string | undefined, failureMessage: string, refreshKey: number): ItemPreferencesControls {
+export function useItemPreferences(userId: string | undefined, failureMessage: string): ItemPreferencesControls {
   const [preferences, setPreferences] = useState<ItemPreference[]>([]);
   const session = useRef<AbortController | null>(null);
   const load = useCallback(async (controller: AbortController) => {
@@ -24,10 +24,6 @@ export function useItemPreferences(userId: string | undefined, failureMessage: s
     if (userId) void load(controller).catch(() => { if (!controller.signal.aborted) sileo.error({ title: failureMessage }); });
     return () => controller.abort();
   }, [userId, load, failureMessage]);
-  useEffect(() => {
-    const controller = session.current;
-    if (refreshKey > 0 && userId && controller && !controller.signal.aborted) void load(controller).catch(() => { if (!controller.signal.aborted) sileo.error({ title: failureMessage }); });
-  }, [refreshKey, userId, load, failureMessage]);
   const updatePreference = useCallback(async (kind: 'files' | 'folders', id: string, patch: ItemOrganizationPatch) => {
     const controller = session.current;
     if (!userId || !controller || controller.signal.aborted) return;

@@ -59,24 +59,25 @@ export function Sidebar(props: SidebarProps) {
   ];
 
   return (
-    <aside className="sticky top-0 flex min-h-svh self-start flex-col gap-[34px] border-r border-line/85 bg-surface/90 px-[18px] pt-7 pb-5 backdrop-blur-lg max-[760px]:items-center max-[760px]:gap-7 max-[760px]:px-2.5 max-[760px]:pt-5 max-[760px]:pb-4 max-[420px]:px-[7px]" aria-label={copy.sidebarLabel}>
+    <aside className="sticky top-0 flex h-svh min-h-0 self-start flex-col gap-[34px] border-r border-line/85 bg-surface px-[18px] pt-7 pb-5 max-[760px]:items-center max-[760px]:gap-7 max-[760px]:px-2.5 max-[760px]:pt-5 max-[760px]:pb-4 max-[420px]:px-[7px]" aria-label={copy.sidebarLabel}>
       <Link className={`inline-flex shrink-0 items-center gap-[11px] rounded-xl text-ink no-underline ${focusRing}`} href="/home" aria-label="KornSpace">
         <span className="grid size-[38px] place-items-center rounded-[11px] text-lg font-bold text-white shadow-md shadow-accent/25 max-[760px]:size-[42px] max-[420px]:size-[38px] bg-linear-to-br from-accent to-secondary" aria-hidden="true"><span className="size-8"><RoosterMark /></span></span>
         <span className="text-[15px] font-semibold tracking-tight max-[760px]:hidden">KornSpace</span>
       </Link>
       <div id="workspace-create-actions" className="relative z-50 w-full" />
-      <nav className="grid w-full gap-1" aria-label={copy.workspaceNavigation}>
+      <nav className="grid min-h-0 w-full flex-1 content-start gap-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]" aria-label={copy.workspaceNavigation}>
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           return (
             <Link
               key={item.href}
               href={item.href}
+              title={item.label}
               onClick={(event) => {
                 if (item.href === '/files' && props.onDriveRoot && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); props.onDriveRoot(); }
               }}
               aria-current={isActive ? 'page' : undefined}
-              className={`flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold no-underline transition-colors max-[760px]:justify-center max-[760px]:px-2 ${focusRing} ${isActive ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-raised hover:text-ink'}`}
+              className={`flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium no-underline transition-colors duration-150 max-[760px]:justify-center max-[760px]:px-2 ${focusRing} ${isActive ? 'bg-accent-soft font-semibold text-accent ring-1 ring-inset ring-accent-line' : 'text-muted hover:bg-raised hover:text-ink'}`}
             >
               {item.icon}
               <span className="max-[760px]:sr-only">{item.label}</span>
@@ -84,7 +85,6 @@ export function Sidebar(props: SidebarProps) {
           );
         })}
       </nav>
-      <div className="flex-1" />
       <div className="mt-auto grid w-full gap-3">
         <AccountMenu {...props} />
         <p className="m-0 border-t border-line/85 px-2.5 pt-3.5 text-[11px] text-muted max-[760px]:hidden">KornSpace</p>

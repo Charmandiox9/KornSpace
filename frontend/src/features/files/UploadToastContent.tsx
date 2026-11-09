@@ -33,6 +33,7 @@ export function UploadToastContent({ queue, uploadId, toastId, copy, onCancelUpl
           </button>
         )}
       </div>
+      <p className="truncate text-[11px] text-muted" data-upload-destination>{copy.uploadDestination}: {item.destinationName}</p>
       {presentation.showProgress && (
         <div className="grid gap-1" aria-live="off">
           <div className="flex items-center gap-2">

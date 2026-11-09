@@ -7,7 +7,7 @@ const createUploadQueue = (options) => createQueue({ cancelUpload: async () => '
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const file = (name) => new File(['content'], name, { type: 'text/plain' });
 
-test('validates each file, accepting exactly 100 MiB and rejecting empty or invalid filenames', () => {
+test('validates each file, accepting exactly 1 GiB and rejecting empty or invalid filenames', () => {
   assert.equal(validateUpload({ name: 'large.bin', size: maxUploadBytes }), null);
   assert.equal(validateUpload({ name: 'large.bin', size: maxUploadBytes + 1 }), 'tooLarge');
   assert.equal(validateUpload({ name: 'empty.txt', size: 0 }), 'empty');
@@ -17,19 +17,22 @@ test('validates each file, accepting exactly 100 MiB and rejecting empty or inva
 
 test('keeps the selected destination folder with each queued upload', async () => {
   const destinations = [];
+  const refreshedDestinations = [];
   const queue = createUploadQueue({
     upload: async (_item, _signal, _progress, _operationId, folderId) => {
       destinations.push(folderId);
       return 'uploaded';
     },
-    onUploaded: async () => undefined,
+    onUploaded: async (folderId) => { refreshedDestinations.push(folderId); },
   });
 
-  queue.enqueue([file('one.txt'), file('two.txt')], 'folder-123');
+  queue.enqueue([file('one.txt'), file('two.txt')], 'folder-123', 'Reports');
   await tick();
 
   assert.deepEqual(destinations, ['folder-123', 'folder-123']);
+  assert.deepEqual(refreshedDestinations, ['folder-123', 'folder-123']);
   assert.ok(queue.getSnapshot().every((item) => item.status === 'uploaded'));
+  assert.ok(queue.getSnapshot().every((item) => item.destinationName === 'Reports'));
 });
 
 test('isolates invalid files and partial failures while refreshing after each successful upload', async () => {

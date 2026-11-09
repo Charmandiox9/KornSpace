@@ -7,7 +7,7 @@ services:
       args:
         NEXT_PUBLIC_API_WS_URL: ${NEXT_PUBLIC_API_WS_URL:-}
     environment:
-      API_PROXY_TARGET: http://backend:3000
+      API_PROXY_TARGET: http://nginx
     expose:
       - "3001"
     restart: unless-stopped
@@ -40,10 +40,12 @@ services:
       SQS_ENDPOINT: http://localstack:4566
       SQS_QUEUE_URL: http://localstack:4566/000000000000/kornspace-file-processing
       FILE_ASYNC_THRESHOLD_BYTES: 10485760
-      FILE_MAX_SIZE_BYTES: 104857600
+      FILE_MAX_SIZE_BYTES: 1073741824
     working_dir: /workspace/backend
     expose:
       - "3000"
+    deploy:
+      replicas: 2
     depends_on:
       redis:
         condition: service_healthy

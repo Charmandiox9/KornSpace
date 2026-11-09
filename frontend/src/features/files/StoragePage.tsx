@@ -4,6 +4,7 @@ import { authenticatedFetch } from '@/lib/api-client';
 import { formatFileSize } from '@/lib/format-file-size';
 import { isStoredFile } from './is-stored-file';
 import { FilesPage } from './FilesPage';
+import { STORAGE_USAGE_QUERY } from '@/graphql/operations';
 
 export function StoragePage(props: FilesPageProps) {
   const [usage, setUsage] = useState<StorageUsage>({ totalBytes: 0, trashBytes: 0, files: [] });
@@ -13,7 +14,7 @@ export function StoragePage(props: FilesPageProps) {
     const controller = new AbortController(); setBusy(true); setError('');
     void (async () => {
       try {
-        const response = await authenticatedFetch('/graphql', { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: 'query { storageUsage { totalBytes trashBytes files { id name contentType sizeBytes status checksum createdAt updatedAt deletedAt ownerId ownerName folderId folderName permission openedAt } } }' }) });
+        const response = await authenticatedFetch('/graphql', { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: STORAGE_USAGE_QUERY }) });
         const payload: unknown = await response.json();
         if (!response.ok || typeof payload !== 'object' || payload === null || !('data' in payload) || typeof payload.data !== 'object' || payload.data === null || !('storageUsage' in payload.data)) throw new Error();
         const value = payload.data.storageUsage;

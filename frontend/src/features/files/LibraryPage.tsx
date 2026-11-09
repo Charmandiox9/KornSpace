@@ -1,24 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { authenticatedFetch } from '@/lib/api-client';
-import type { LibraryPageProps, StoredFile } from '@/types';
-import { isStoredFile } from './is-stored-file';
+import type { LibraryPageProps, LibrarySnapshot } from '@/types';
+import { readLibraryQuery } from './is-folder-contents';
 import { FilesPage } from './FilesPage';
-
-function isLibraryFile(value: unknown): value is StoredFile {
-  return isStoredFile(value) && typeof value.updatedAt === 'string' && typeof value.ownerName === 'string'
-    && (typeof value.ownerId === 'string' || value.ownerId === null)
-    && (typeof value.folderId === 'string' || value.folderId === null)
-    && (typeof value.folderName === 'string' || value.folderName === null)
-    && (typeof value.openedAt === 'string' || value.openedAt === null)
-    && (value.permission === 'OWNER' || value.permission === 'READER' || value.permission === 'EDITOR');
-}
-
-const fields = 'id name contentType sizeBytes status checksum createdAt updatedAt deletedAt ownerId ownerName folderId folderName permission openedAt';
+import { FILE_LIBRARY_QUERY } from '@/graphql/operations';
 
 export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: LibraryPageProps) {
   const { copy } = props;
-  const [all, setAll] = useState<StoredFile[]>([]);
-  const [recent, setRecent] = useState<StoredFile[]>([]);
+  const [snapshot, setSnapshot] = useState<LibrarySnapshot>({ all: [], recent: [], folders: [] });
+  const { all, recent, folders } = snapshot;
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -26,20 +16,21 @@ export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: Li
   const [owner, setOwner] = useState('');
   const [modified, setModified] = useState('');
   const [location, setLocation] = useState('');
+  const hasLoadedLibrary = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
-    setBusy(true); setError('');
+    if (!hasLoadedLibrary.current) setBusy(true);
+    setError('');
     void (async () => {
       try {
-        const response = await authenticatedFetch('/graphql', { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: `query { all: fileLibrary(filters: { shared: ${sharedOnly} }) { ${fields} } recent: fileLibrary(filters: { recent: true, shared: ${sharedOnly} }) { ${fields} } }` }) });
+        const response = await authenticatedFetch('/graphql', { method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: FILE_LIBRARY_QUERY, variables: { shared: sharedOnly } }) });
         const payload: unknown = await response.json();
-        if (!response.ok || typeof payload !== 'object' || payload === null || !('data' in payload) || typeof payload.data !== 'object' || payload.data === null) throw new Error();
-        const data = payload.data as Record<string, unknown>;
-        if (!Array.isArray(data.all) || !data.all.every(isLibraryFile) || !Array.isArray(data.recent) || !data.recent.every(isLibraryFile)) throw new Error();
-        if (!controller.signal.aborted) { setAll(data.all); setRecent(data.recent); }
+        const result = readLibraryQuery(payload);
+        if (!response.ok || !result) throw new Error();
+        if (!controller.signal.aborted) setSnapshot(result);
       } catch { if (!controller.signal.aborted) setError(copy.loadError); }
-      finally { if (!controller.signal.aborted) setBusy(false); }
+      finally { if (!controller.signal.aborted) { hasLoadedLibrary.current = true; setBusy(false); } }
     })();
     return () => controller.abort();
   }, [sharedOnly, refreshKey, copy.loadError]);
@@ -56,10 +47,10 @@ export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: Li
       && (!modified || new Date(file.updatedAt ?? file.createdAt).getTime() >= Date.now() - Number(modified) * 86400000);
   });
   const suggestedFolderIds = new Set(recent.map((file) => file.folderId));
-  const suggestedFolders = [...props.folders].sort((a, b) => Number(suggestedFolderIds.has(b.id)) - Number(suggestedFolderIds.has(a.id)) || b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
-  const selectClass = 'min-h-10 max-w-full rounded-full border border-line bg-raised px-4 text-xs text-ink focus-visible:outline-accent';
+  const suggestedFolders = [...folders].sort((a, b) => Number(suggestedFolderIds.has(b.id)) - Number(suggestedFolderIds.has(a.id)) || b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
+  const selectClass = 'min-h-10 max-w-full cursor-pointer rounded-lg border border-line bg-surface px-3 text-[13px] text-ink transition-colors duration-150 hover:border-accent-line focus-visible:outline-accent';
   const toolbar = <div className="mb-3 grid gap-4 border-b border-line pb-4">
-    <label className="flex items-center gap-3 rounded-2xl border border-line bg-raised px-5 py-3 text-muted"><span aria-hidden="true">⌕</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} aria-label={copy.searchFiles} placeholder={copy.searchFiles} className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none" /></label>
+    <label className="flex min-h-12 items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 text-muted transition-colors duration-150 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15"><svg className="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} aria-label={copy.searchFiles} placeholder={copy.searchFiles} className="min-w-0 flex-1 bg-transparent text-sm text-ink placeholder:text-muted focus-visible:outline-none" /></label>
     <div className="flex flex-wrap gap-2">
       <select aria-label={copy.filterType} className={selectClass} value={kind} onChange={(event) => setKind(event.target.value)}><option value="">{copy.filterType}: {copy.filterAll}</option>{[['image', copy.filterImages], ['video', copy.filterVideos], ['audio', copy.filterAudio], ['text', copy.filterText], ['document', copy.filterDocuments]].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
       <select aria-label={copy.filterOwner} className={selectClass} value={owner} onChange={(event) => setOwner(event.target.value)}><option value="">{copy.filterOwner}: {copy.filterAll}</option>{[...owners].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
@@ -67,5 +58,5 @@ export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: Li
       <select aria-label={copy.filterLocation} className={selectClass} value={location} onChange={(event) => setLocation(event.target.value)}><option value="">{copy.filterLocation}: {copy.filterAll}</option><option value="root">{copy.myDrive}</option>{[...locations].map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
     </div>
   </div>;
-  return <FilesPage {...props} collapsibleSections={!sharedOnly} foldersLabel={!sharedOnly ? copy.suggestedFolders : undefined} filesLabel={!sharedOnly ? copy.suggestedFiles : undefined} showQuickAccess={!sharedOnly} files={files} folders={search || kind || owner || modified || location ? [] : sharedOnly ? props.folders.filter((folder) => folder.ownerId !== props.userId) : suggestedFolders} currentFolder={null} currentFolderId={null} breadcrumbs={[]} title={sharedOnly ? copy.sharedWithMe : copy.homeWelcome} toolbar={toolbar} isLoading={busy} notice={error || props.notice} />;
+  return <FilesPage {...props} collapsibleSections={!sharedOnly} foldersLabel={!sharedOnly ? copy.suggestedFolders : undefined} filesLabel={!sharedOnly ? copy.suggestedFiles : undefined} showQuickAccess={!sharedOnly} files={files} folders={search || kind || owner || modified || location ? [] : sharedOnly ? folders.filter((folder) => folder.ownerId !== props.userId) : suggestedFolders} currentFolder={null} currentFolderId={null} breadcrumbs={[]} title={sharedOnly ? copy.sharedWithMe : copy.homeWelcome} toolbar={toolbar} isLoading={busy} notice={error || props.notice} />;
 }

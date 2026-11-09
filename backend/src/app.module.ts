@@ -28,7 +28,7 @@ interface GraphQLContextInput {
       driver: ApolloDriver,
       autoSchemaFile: true,
       sortSchema: true,
-      graphiql: process.env.NODE_ENV !== 'production',
+      graphiql: process.env.NODE_ENV === 'development',
       context: ({ req, res }: GraphQLContextInput) => ({ req, res }),
     }),
   ],

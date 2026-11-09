@@ -1,3 +1,4 @@
+import { MoveResourceDto } from '../common/dto/move-resource.dto';
 import { Body, Controller, Delete, HttpCode, Param, Patch, Put, Get, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { Transform } from 'class-transformer';
 import { IsOptional, IsString, IsUUID, MaxLength, MinLength, Matches } from 'class-validator';
@@ -9,6 +10,7 @@ import type { StoredFileResponse } from '../files/file.types';
 import type { FolderContentsResponse, FolderResponse } from './folder.types';
 import { PermissionRoleDto, ResourcePermissionDto } from './permission.dto';
 import { FoldersService } from './folders.service';
+import { ResourceActivityDto } from '../common/dto/resource-activity.dto';
 
 export class RenameFolderDto {
   @ApiProperty({ maxLength: 255, example: 'Invoices' })
@@ -19,6 +21,10 @@ export class RenameFolderDto {
   @Matches(/^[^\\/\u0000-\u001f\u007f]+$/u)
   name!: string;
 
+}
+
+export class FolderDescriptionDto {
+  @ApiProperty({ maxLength: 1000 }) @IsString() @MaxLength(1000) description!: string;
 }
 
 export class CreateFolderDto {
@@ -37,6 +43,7 @@ export class CreateFolderDto {
 }
 
 export class FolderResponseDto implements FolderResponse {
+  @ApiPropertyOptional({ type: String, nullable: true, maxLength: 1000 }) description?: string | null;
   @ApiProperty({ format: 'uuid' }) id!: string;
   @ApiProperty() name!: string;
   @ApiProperty({ format: 'uuid' }) ownerId!: string;
@@ -47,6 +54,8 @@ export class FolderResponseDto implements FolderResponse {
 }
 
 class FolderFileResponseDto implements StoredFileResponse {
+  @ApiPropertyOptional({ type: String, nullable: true }) description?: string | null;
+  @ApiPropertyOptional({ format: 'date-time' }) updatedAt?: string;
   @ApiPropertyOptional({ enum: ['OWNER', 'READER', 'EDITOR'] }) permission?: 'OWNER' | 'READER' | 'EDITOR';
   @ApiPropertyOptional({ type: String, format: 'uuid', nullable: true }) ownerId?: string | null;
   @ApiProperty({ format: 'uuid' }) id!: string;
@@ -85,6 +94,31 @@ class FolderEditorResponseDto {
 export class FoldersController {
   constructor(private readonly foldersService: FoldersService) {}
 
+  @Post(':id/move')
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: 'Elemento movido o ya ubicado en el destino.' })
+  @ApiOperation({ summary: 'Mueve a otra carpeta conservando identidad, contenido y propietario; el destino actual no genera actividad' })
+  @ApiForbiddenResponse({ description: 'Origen o destino sin permiso de escritura.' })
+  @ApiConflictResponse({ description: 'Nombre repetido o movimiento concurrente; no se modifica el elemento.' })
+  @ApiBadRequestResponse({ description: 'Destino inválido o ciclo entre carpetas.' })
+  move(@Param('id', new ParseUUIDPipe()) id: string, @Body() input: MoveResourceDto, @CurrentUser() user: AuthenticatedUserContext): Promise<void> {
+    return this.foldersService.move(id, user.userId, input.destinationId);
+  }
+
+  @Put(':id/description')
+  @ApiOperation({ summary: 'Actualiza la descripción de una carpeta accesible como propietario o editor' })
+  @ApiOkResponse({ type: FolderResponseDto })
+  updateDescription(@Param('id', new ParseUUIDPipe()) id: string, @Body() input: FolderDescriptionDto, @CurrentUser() user: AuthenticatedUserContext) {
+    return this.foldersService.updateDescription(id, user.userId, input.description);
+  }
+
+  @Get(':id/activity')
+  @ApiOperation({ summary: 'Consulta la actividad de una carpeta accesible durante el último año' })
+  @ApiOkResponse({ type: ResourceActivityDto, isArray: true })
+  activity(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext) {
+    return this.foldersService.activity(id, user.userId);
+  }
+
   @Patch(':id')
   @ApiOperation({ summary: 'Renombra como propietario o editor; no permite mover la carpeta' })
   @ApiOkResponse({ type: FolderResponseDto })
@@ -98,9 +132,12 @@ export class FoldersController {
 
   @Delete(':id') @HttpCode(204)
   @ApiNoContentResponse({ description: 'Carpeta eliminada.' })
-  @ApiOperation({ summary: 'Elimina una carpeta vacía como propietario o editor; incluye papelera al comprobar contenido' })
+  @ApiOperation({
+    summary: 'Elimina permanentemente una carpeta vacía como propietario o editor',
+    description: 'Rechaza carpetas con subcarpetas o archivos, incluidos los de papelera. Las carpetas no tienen objetos S3 propios. La eliminación en cascada revoca sus permisos compartidos y elimina sus preferencias.',
+  })
   @ApiNotFoundResponse({ description: 'Carpeta inexistente o sin permiso.' })
-  @ApiConflictResponse({ description: 'Contiene archivos o descendientes; no se modifica S3 ni contenido.' })
+  @ApiConflictResponse({ description: 'Contiene archivos o descendientes; no se modifica S3, contenido ni comparticiones.' })
   @ApiServiceUnavailableResponse({ description: 'Operación atómica fallida; se puede reintentar.' })
   remove(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: AuthenticatedUserContext) {
     return this.foldersService.remove(id, user.userId);

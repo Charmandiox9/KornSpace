@@ -12,12 +12,15 @@ export interface TestStoredFile {
   id: string;
   ownerId: string;
   name: string;
+  description: string | null;
   contentType: string;
   sizeBytes: bigint;
   s3Key: string;
   checksum: string | null;
   status: 'PROCESSING' | 'AVAILABLE' | 'FAILED';
   createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
 }
 
 export interface ManagedHarnessOptions {
@@ -58,7 +61,8 @@ export function createManagedHarness() {
       create: async ({ data }: { data: Omit<TestStoredFile, 'createdAt'> }) => {
         await options.beforeCreate?.();
         if (options.failCreate) throw new Error('Database unavailable');
-        const record = { ...data, createdAt: new Date() };
+        const createdAt = new Date();
+        const record = { ...data, description: null, folderId: null, deletionPending: false, createdAt, updatedAt: createdAt, deletedAt: null };
         records.push(record);
         return record;
       },

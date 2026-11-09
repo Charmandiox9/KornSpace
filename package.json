@@ -12,7 +12,10 @@
     "prisma:migrate:deploy": "pnpm --filter kornspace-backend prisma:migrate:deploy",
     "prisma:migrate:status": "pnpm --filter kornspace-backend prisma:migrate:status",
     "build": "pnpm --recursive --if-present build",
-    "test": "pnpm --recursive --if-present test"
+    "test": "pnpm --recursive --if-present test",
+    "db:use": "node backend/scripts/select-database.mts",
+    "db:sync:neon": "node backend/scripts/sync-local-to-neon.mts",
+    "test:db-sync": "node --test backend/test/database-sync.test.mts"
   },
   "pnpm": {
     "overrides": {

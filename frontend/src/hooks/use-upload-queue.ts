@@ -57,7 +57,7 @@ async function cancelUpload(operationId: string): Promise<CancellationResult> {
   throw new Error('Upload cancellation is still pending');
 }
 
-export function useUploadQueue(onUploaded: () => Promise<void>, userId: string | undefined): UploadQueueControls {
+export function useUploadQueue(onUploaded: (folderId: string | null) => Promise<void>, userId: string | undefined): UploadQueueControls {
   const [conflicts, setConflicts] = useState<UploadConflict[]>([]);
   const serverAttempts = useRef(new Map<string, string>());
   const decisions = useRef(new Map<string, (replace: boolean) => void>());
@@ -100,7 +100,7 @@ export function useUploadQueue(onUploaded: () => Promise<void>, userId: string |
       }
     },
     cancelUpload: (operationId) => cancelUpload(serverAttempts.current.get(operationId) ?? operationId),
-    onUploaded: () => onUploadedRef.current(),
+    onUploaded: (folderId) => onUploadedRef.current(folderId),
   }));
 
   useEffect(() => {
@@ -112,7 +112,7 @@ export function useUploadQueue(onUploaded: () => Promise<void>, userId: string |
     conflict: conflicts[0] ?? null,
     resolveConflict: (replace) => { const first = conflicts[0]; if (first) decisions.current.get(first.operationId)?.(replace); },
     queue,
-    enqueue: (files: File[], folderId?: string | null) => { if (userId) queue.enqueue(files, folderId); },
+    enqueue: (files: File[], folderId?: string | null, destinationName?: string) => { if (userId) queue.enqueue(files, folderId, destinationName); },
     cancelItem: queue.cancelItem,
     retryItem: queue.retryItem,
   };
