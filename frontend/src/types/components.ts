@@ -179,6 +179,8 @@ export interface FileViewerProps {
   apiUrl: (path: string) => string;
   onClose: () => void;
   onDelete: () => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
 }
 
 export interface SessionProviderProps {

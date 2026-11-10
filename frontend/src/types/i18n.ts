@@ -207,6 +207,8 @@ export interface TranslationCatalog {
   fileProcessing: string;
   fileFailed: string;
   download: string;
+  previousFile: string;
+  nextFile: string;
   emptyFiles: string;
   uploading: string;
   uploadSuccess: string;
