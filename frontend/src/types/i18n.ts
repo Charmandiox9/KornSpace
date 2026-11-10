@@ -206,6 +206,9 @@ export interface TranslationCatalog {
   fileReady: string;
   fileProcessing: string;
   fileFailed: string;
+  fileFailedHint: string;
+  retryLoad: string;
+  networkError: string;
   download: string;
   emptyFiles: string;
   uploading: string;
