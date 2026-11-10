@@ -41,6 +41,8 @@ export interface WorkspaceHeaderProps {
   onUploadFolderClick?: () => void;
   /** Si no se pasa, el botón de crear carpeta no se muestra. */
   onCreateFolder?: () => void;
+  detailsOpen?: boolean;
+  onToggleDetails?: () => void;
 }
 
 export interface CreateFolderDialogProps {
