@@ -4,6 +4,8 @@ import type { LibraryPageProps, LibrarySnapshot } from '@/types';
 import { readLibraryQuery } from './is-folder-contents';
 import { FilesPage } from './FilesPage';
 import { FILE_LIBRARY_QUERY } from '@/graphql/operations';
+import { toUserMessage } from '@/lib/user-facing-error';
+import { useProcessingPoll } from '@/hooks/use-processing-poll';
 
 export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: LibraryPageProps) {
   const { copy } = props;
@@ -29,11 +31,12 @@ export function LibraryPage({ sharedOnly = false, refreshKey = 0, ...props }: Li
         const result = readLibraryQuery(payload);
         if (!response.ok || !result) throw new Error();
         if (!controller.signal.aborted) setSnapshot(result);
-      } catch { if (!controller.signal.aborted) setError(copy.loadError); }
+      } catch (caught: unknown) { if (!controller.signal.aborted) setError(toUserMessage(caught, copy.loadError, copy.networkError)); }
       finally { if (!controller.signal.aborted) { hasLoadedLibrary.current = true; setBusy(false); } }
     })();
     return () => controller.abort();
-  }, [sharedOnly, refreshKey, copy.loadError]);
+  }, [sharedOnly, refreshKey, copy.loadError, copy.networkError]);
+  useProcessingPoll(all, () => props.onChanged?.());
 
   const available = useMemo(() => [...new Map([...all, ...recent].map((file) => [file.id, file])).values()], [all, recent]);
   const owners = new Map(available.filter((file) => file.ownerId).map((file) => [file.ownerId!, file.ownerName ?? file.ownerId!]));

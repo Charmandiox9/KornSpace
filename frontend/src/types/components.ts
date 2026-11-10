@@ -208,3 +208,8 @@ export interface MotionControlProps { copy: TranslationCatalog; }
 export interface MascotSceneProps { copy: TranslationCatalog; theme: Theme; }
 export interface MascotSceneHandle { setMotion: (enabled: boolean) => void; setTheme: (dark: boolean) => void; dispose: () => void; }
 export interface MascotSceneOptions { dark: boolean; motion: boolean; onUnavailable?: () => void; }
+
+export interface FileStatusBadgeProps {
+  status: StoredFile['status'];
+  copy: TranslationCatalog;
+}
