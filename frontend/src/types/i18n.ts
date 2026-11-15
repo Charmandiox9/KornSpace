@@ -202,6 +202,9 @@ export interface TranslationCatalog {
   fileActionFailed: string;
   fileName: string;
   fileSize: string;
+  fileView: string;
+  fileViewGrid: string;
+  fileViewList: string;
   fileStatus: string;
   fileReady: string;
   fileProcessing: string;
@@ -210,6 +213,13 @@ export interface TranslationCatalog {
   retryLoad: string;
   networkError: string;
   download: string;
+  previousFile: string;
+  nextFile: string;
+  workspaceBrandNote: string;
+  emptyDriveTitle: string;
+  emptyFolderTitle: string;
+  emptyTrashTitle: string;
+  emptyResultsTitle: string;
   emptyFiles: string;
   uploading: string;
   uploadSuccess: string;

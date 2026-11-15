@@ -40,14 +40,17 @@ export function AppToaster() {
       data-upload-toaster
       className={[
         '[--sileo-width:min(350px,calc(100vw_-_64px))]',
-        '[&_[data-sileo-viewport]]:z-70 [&_[data-sileo-viewport]]:max-h-[calc(100svh-32px)]',
+        '[&_[data-sileo-viewport]]:z-70! [&_[data-sileo-viewport]]:max-h-[calc(100svh-32px)]',
         '[&_[data-sileo-viewport]]:touch-pan-y [&_[data-sileo-viewport]]:overflow-x-hidden [&_[data-sileo-viewport]]:overflow-y-auto',
         '[&_[data-sileo-viewport]]:overscroll-contain [&_[data-sileo-viewport]]:[scrollbar-width:thin]',
+        'max-[760px]:[&_[data-sileo-viewport]]:left-3! max-[760px]:[&_[data-sileo-viewport]]:right-auto!',
         '[&_[data-sileo-toast]]:shrink-0 [&_[data-sileo-toast]]:touch-pan-y!',
         '[&_[data-sileo-canvas]]:drop-shadow-lg',
         'motion-reduce:[&_[data-sileo-viewport]_*]:animate-none!',
         'motion-reduce:[&_[data-sileo-viewport]_*]:transition-none!',
         'motion-reduce:[&_[data-sileo-viewport]_*]:duration-0!',
+        'motion-reduce:[&_[data-sileo-header-inner][data-layer=prev]]:hidden!',
+        '[[data-motion=reduced]_&_[data-sileo-header-inner][data-layer=prev]]:hidden!',
       ].join(' ')}
     >
       <Toaster

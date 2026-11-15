@@ -26,5 +26,5 @@ export function StoragePage(props: FilesPageProps) {
     return () => controller.abort();
   }, [props.files, props.trash, props.copy.loadError]);
   const toolbar = <div className="mb-4 border-b border-line py-5"><p className="text-sm text-muted">{props.copy.storageTotal}</p><p data-storage-total className="mt-2 text-3xl font-semibold tabular-nums">{busy ? '—' : formatFileSize(usage.totalBytes)}</p><p className="mt-3 text-xs text-muted">{props.copy.storageScope}</p><p className="mt-2 text-xs text-muted">{props.copy.inTrash}: {formatFileSize(usage.trashBytes)}</p></div>;
-  return <FilesPage {...props} files={usage.files} folders={[]} currentFolder={null} currentFolderId={null} breadcrumbs={[]} title={props.copy.storageHeading} toolbar={toolbar} listView initialSortOrder="sizeDesc" isLoading={busy} notice={error || props.notice} />;
+  return <FilesPage {...props} files={usage.files} folders={[]} currentFolder={null} currentFolderId={null} breadcrumbs={[]} title={props.copy.storageHeading} toolbar={toolbar} initialSortOrder="sizeDesc" isLoading={busy} notice={error || props.notice} />;
 }

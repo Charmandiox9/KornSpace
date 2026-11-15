@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { sileo } from 'sileo';
+import { sileo } from '@/lib/notifications';
 import type { UploadNotificationsProps, UploadToastOptions } from '@/types';
 import { UploadToastContent } from './UploadToastContent';
-import { UploadToastIcon } from './UploadToastIcon';
+import { RoosterNotificationIcon } from '@/components/RoosterNotificationIcon';
 
 export function UploadNotifications({ queue, copy, onCancelUpload, onRetryUpload }: UploadNotificationsProps) {
   const uploads = useSyncExternalStore(queue.subscribe, queue.getSnapshot, queue.getServerSnapshot);
@@ -52,7 +52,7 @@ export function UploadNotifications({ queue, copy, onCancelUpload, onRetryUpload
       title: complete ? copy.uploadToastCompleted : copy.uploadsHeading,
       type: state,
       duration: null,
-      icon: <UploadToastIcon state={state} />,
+      icon: <RoosterNotificationIcon state={state} activity={items.some((item) => item.status === 'uploading') ? 'uploading' : 'waiting'} />,
       fill: 'var(--surface-raised)',
       autopilot: { expand: 0, collapse: 0 },
       description: (

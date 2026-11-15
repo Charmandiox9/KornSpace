@@ -1,8 +1,10 @@
+import { RoosterMark } from '@/components/RoosterMark';
+import { KornFileIcon } from '@/components/KornFileIcon';
 import { useEffect, useRef, useState } from 'react';
 import { authenticatedFetch } from '@/lib/api-client';
 import type { FileViewerProps } from '@/types';
 
-export function FileViewer({ file, copy, apiUrl, onClose, onDelete }: FileViewerProps) {
+export function FileViewer({ file, copy, apiUrl, onClose, onDelete, onPrevious, onNext }: FileViewerProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
@@ -70,6 +72,11 @@ export function FileViewer({ file, copy, apiUrl, onClose, onDelete }: FileViewer
     setState('loading');
     setText(null);
     setSource('');
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setPlaybackRate(1);
+    setVolume(1);
     if (image || video) {
       setSource(apiUrl(`/api/files/${encodeURIComponent(file.id)}/preview`));
       return () => controller.abort();
@@ -102,16 +109,23 @@ export function FileViewer({ file, copy, apiUrl, onClose, onDelete }: FileViewer
   }, [file.id, file.sizeBytes, mediaType, image, video, audio, pdf, plainText, apiUrl]);
 
   return (
-    <dialog ref={dialogRef} aria-labelledby="viewer-title" onCancel={onClose} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} className={`fixed ${video ? 'inset-x-0 top-1/2 bottom-auto m-auto h-auto max-h-[92svh] w-[min(94vw,64rem)] -translate-y-1/2' : 'inset-0 m-auto h-[94svh] max-h-none w-[96vw] max-w-none'} overflow-hidden rounded-2xl border border-line bg-surface p-0 text-ink shadow-2xl backdrop:bg-black/75 backdrop:backdrop-blur-sm`}>
+    <dialog ref={dialogRef} aria-labelledby="viewer-title" onCancel={onClose} onKeyDown={(event) => {
+      if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"], video, audio')) return;
+      if (event.key === 'ArrowLeft' && onPrevious) { event.preventDefault(); onPrevious(); }
+      if (event.key === 'ArrowRight' && onNext) { event.preventDefault(); onNext(); }
+    }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} className={`fixed ${video ? 'inset-x-0 top-1/2 bottom-auto m-auto h-auto max-h-[92svh] w-[min(94vw,64rem)] -translate-y-1/2' : 'inset-0 m-auto h-[94svh] max-h-none w-[96vw] max-w-none'} overflow-hidden rounded-2xl border border-line bg-surface p-0 text-ink shadow-2xl backdrop:bg-black/75 backdrop:backdrop-blur-sm`}>
       <div className="flex h-full flex-col">
         <header className="flex flex-wrap items-center gap-3 border-b border-line p-4">
+          <span className="size-9 shrink-0 rounded-xl bg-accent-soft p-1 text-accent" aria-hidden="true"><RoosterMark /></span>
           <h2 id="viewer-title" className="min-w-0 flex-1 truncate text-sm font-semibold">{file.name}</h2>
           <a aria-label={copy.download} title={copy.download} className="grid size-10 place-items-center rounded-xl border border-line bg-raised text-accent shadow-sm transition hover:border-accent/40 hover:bg-accent-soft hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" href={apiUrl(`/api/files/${encodeURIComponent(file.id)}`)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-5"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></a>
           <button type="button" aria-label={copy.deleteFile} disabled={file.permission === 'READER'} title={file.permission === 'READER' ? copy.readOnlyAction : copy.deleteFile} className="grid size-10 place-items-center rounded-xl border border-status/20 bg-status/5 text-status shadow-sm transition hover:border-status/40 hover:bg-status/10 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-status disabled:cursor-not-allowed disabled:opacity-50" onClick={onDelete}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-5"><path d="M4 7h16m-10 4v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
           <button type="button" aria-label={copy.closePanel} className="grid size-10 place-items-center rounded-full text-xl text-muted transition hover:bg-raised hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={onClose}>×</button>
         </header>
         <div className={`relative flex min-h-0 ${video ? 'max-h-[calc(92svh-4.5rem)]' : 'flex-1'} items-center justify-center overflow-auto bg-page ${video ? 'p-2 sm:p-3' : 'p-4 sm:p-8'}`}>
-          {state === 'loading' && <p role="status" className="absolute inset-0 z-10 grid animate-pulse place-items-center bg-page text-sm text-muted motion-reduce:animate-none">{copy.previewLoading}</p>}
+          {onPrevious && <button type="button" aria-label={copy.previousFile} title={copy.previousFile} onClick={onPrevious} className="absolute left-3 top-1/2 z-20 grid size-11 -translate-y-1/2 place-items-center rounded-full border border-line bg-surface/95 text-ink shadow-md transition hover:border-accent-line hover:bg-accent-soft hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent motion-reduce:transition-none sm:left-5"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-5"><path d="m15 18-6-6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></button>}
+          {onNext && <button type="button" aria-label={copy.nextFile} title={copy.nextFile} onClick={onNext} className="absolute right-3 top-1/2 z-20 grid size-11 -translate-y-1/2 place-items-center rounded-full border border-line bg-surface/95 text-ink shadow-md transition hover:border-accent-line hover:bg-accent-soft hover:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent motion-reduce:transition-none sm:right-5"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-5"><path d="m9 18 6-6-6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></button>}
+          {state === 'loading' && <p role="status" className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-page text-sm text-muted"><span className="size-12 text-accent" aria-hidden="true"><KornFileIcon /></span>{copy.previewLoading}</p>}
           {(state === 'error' || state === 'unsupported') && <p role="status" className="max-w-md text-center text-sm leading-6 text-muted">{state === 'error' ? copy.previewError : copy.previewUnavailable}</p>}
           {source && image && <img src={source} alt={file.name} className="max-h-full max-w-full object-contain" onLoad={() => setState('ready')} onError={() => setState('error')} />}
           {source && video && <div ref={playerRef} className={`group/player relative w-full overflow-hidden bg-black focus-within:ring-2 focus-within:ring-accent ${isFullscreen ? 'flex h-svh w-screen max-w-none flex-col justify-center rounded-none shadow-none' : 'max-w-5xl rounded-xl shadow-xl'}`}>

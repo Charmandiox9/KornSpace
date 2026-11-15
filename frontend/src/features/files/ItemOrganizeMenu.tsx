@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { sileo } from 'sileo';
+import { sileo } from '@/lib/notifications';
 import type { ItemColor, ItemOrganizeMenuProps, ItemOrganizationPatch } from '@/types';
 import { itemColors } from './item-organization';
 import { ActionIcon } from './ActionIcon';

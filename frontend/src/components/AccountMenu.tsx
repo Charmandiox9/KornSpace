@@ -24,8 +24,8 @@ export function AccountMenu({
     : copy.switchLanguageToSpanish;
 
   return (
-    <details className="group/account relative min-w-0">
-      <summary className="grid min-h-16 min-w-0 cursor-pointer list-none grid-cols-[40px_minmax(0,1fr)_16px] items-center gap-2.5 rounded-[14px] border border-line bg-raised px-2.5 py-[9px] transition-colors hover:border-accent-line hover:bg-accent-soft group-open/account:border-accent-line group-open/account:bg-accent-soft [&::-webkit-details-marker]:hidden max-[760px]:flex max-[760px]:min-h-[54px] max-[760px]:justify-center max-[760px]:border-0 max-[760px]:bg-transparent max-[760px]:px-0 max-[760px]:py-[7px]" aria-label={copy.accountMenu}>
+    <details className="group/account relative z-50 min-w-0">
+      <summary className="grid min-h-16 min-w-0 cursor-pointer list-none grid-cols-[40px_minmax(0,1fr)_16px] items-center gap-2.5 rounded-[14px] border border-line bg-raised px-2.5 py-[9px] transition-colors hover:border-accent-line hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent group-open/account:border-accent-line group-open/account:bg-accent-soft [&::-webkit-details-marker]:hidden max-[760px]:flex max-[760px]:min-h-[54px] max-[760px]:justify-center max-[760px]:border-0 max-[760px]:bg-transparent max-[760px]:px-0 max-[760px]:py-[7px]" aria-label={copy.accountMenu}>
         <span className="grid size-[38px] place-items-center overflow-hidden rounded-full text-[13px] font-bold text-white [&_img]:size-full [&_img]:object-cover bg-linear-to-br from-accent to-secondary" aria-hidden="true">
           {user.pictureUrl
             ? <img src={user.pictureUrl} alt="" referrerPolicy="no-referrer" />
@@ -35,18 +35,16 @@ export function AccountMenu({
           <span className="truncate text-xs font-semibold">@{user.username}</span>
           <span className="truncate text-[10px] text-muted">{user.email}</span>
         </span>
-        <span className="text-center text-lg text-muted transition-transform group-open/account:rotate-180 max-[760px]:hidden" aria-hidden="true">⌃</span>
+        <svg className="size-4 text-muted transition-transform duration-150 group-open/account:rotate-180 motion-reduce:transition-none max-[760px]:hidden" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </summary>
-      <div className="absolute bottom-[calc(100%+10px)] left-0 z-5 grid w-full gap-3 rounded-2xl border border-line bg-surface p-4 shadow-panel max-[760px]:w-[220px]">
-        <p className="m-0 text-[10px] font-bold tracking-widest text-muted uppercase">{copy.accountDetails}</p>
-        <dl className="m-0 grid gap-2.5 [&>div]:grid [&>div]:min-w-0 [&>div]:gap-[3px] [&_dt]:text-[10px] [&_dt]:text-muted [&_dd]:m-0 [&_dd]:truncate [&_dd]:text-xs [&_dd]:font-semibold">
-          <div><dt>{copy.profileName}</dt><dd>{user.name ?? copy.profileNameUnavailable}</dd></div>
-          <div><dt>{copy.usernameLabel}</dt><dd>@{user.username}</dd></div>
-          <div><dt>{copy.emailLabel}</dt><dd>{user.email}</dd></div>
-        </dl>
-        <div className="h-px bg-line" />
-        <p className="m-0 text-[10px] font-bold tracking-widest text-muted uppercase">{copy.appearanceControls}</p>
-        <div className="grid gap-[7px] [&_button]:min-h-10 [&_button]:text-xs max-[760px]:[&_button]:w-full max-[760px]:[&_button]:justify-start max-[760px]:[&_button]:px-[13px]">
+      <div className="invisible absolute bottom-[calc(100%+10px)] left-0 z-50 grid w-full origin-bottom-left translate-y-1 gap-3 rounded-2xl border border-line bg-surface p-4 opacity-0 shadow-panel transition-[opacity,transform,visibility] duration-150 ease-out group-open/account:visible group-open/account:translate-y-0 group-open/account:opacity-100 motion-reduce:transform-none motion-reduce:transition-none max-[760px]:bottom-0 max-[760px]:left-[calc(100%+10px)] max-[760px]:w-[min(280px,calc(100vw-80px))] max-[760px]:origin-bottom-left">
+        <div className="flex min-w-0 items-center gap-3 border-b border-line pb-3">
+          <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-full text-sm font-bold text-white [&_img]:size-full [&_img]:object-cover bg-linear-to-br from-accent to-secondary" aria-hidden="true">{user.pictureUrl ? <img src={user.pictureUrl} alt="" referrerPolicy="no-referrer" /> : getProfileInitials(user)}</span>
+          <div className="min-w-0"><p className="m-0 truncate text-sm font-semibold text-ink">{user.name ?? copy.profileNameUnavailable}</p><p className="m-0 mt-0.5 truncate text-xs text-muted">{user.email}</p><p className="m-0 mt-1 truncate text-[11px] font-medium text-accent">@{user.username}</p></div>
+        </div>
+        <div>
+          <p className="m-0 mb-2 text-[10px] font-bold tracking-widest text-muted uppercase">{copy.appearanceControls}</p>
+          <div className="grid gap-2 [&_button]:min-h-10 [&_button]:text-xs">
           <ActionButton ariaLabel={languageActionLabel} onClick={onLanguageChange} title={languageActionLabel}>
             <span className="text-[11px] font-bold tracking-wider text-accent" aria-hidden="true">{nextLanguage.toUpperCase()}</span>
             <span>{nextLanguageName}</span>
@@ -60,8 +58,9 @@ export function AccountMenu({
             <span className="grid size-[17px] place-items-center text-accent [&_svg]:size-[17px] [&_svg]:fill-none [&_svg]:stroke-current [&_svg]:stroke-[1.7] [&_svg]:[stroke-linecap:round] [&_svg]:[stroke-linejoin:round]">{theme === 'light' ? <MoonIcon /> : <SunIcon />}</span>
             <span>{theme === 'light' ? copy.darkTheme : copy.lightTheme}</span>
           </ActionButton>
+          </div>
         </div>
-        <button className="inline-flex cursor-pointer items-center gap-[7px] rounded-[10px] border border-line bg-surface text-[11px] font-semibold hover:border-accent-line hover:bg-accent-soft [&_svg]:size-[17px] [&_svg]:fill-none [&_svg]:stroke-current [&_svg]:stroke-[1.7] [&_svg]:[stroke-linecap:round] [&_svg]:[stroke-linejoin:round] min-h-10 w-full justify-start px-[13px] text-ink" type="button" onClick={onLogout}>
+        <button className="inline-flex cursor-pointer items-center gap-[7px] rounded-xl border border-line bg-surface text-xs font-semibold text-status transition-colors hover:border-status/40 hover:bg-status/5 [&_svg]:size-[17px] [&_svg]:fill-none [&_svg]:stroke-current [&_svg]:stroke-[1.7] [&_svg]:[stroke-linecap:round] [&_svg]:[stroke-linejoin:round] min-h-10 w-full justify-start px-[13px]" type="button" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onLogout(); }}>
           <LogoutIcon />
           <span>{copy.logout}</span>
         </button>

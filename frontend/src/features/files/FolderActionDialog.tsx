@@ -1,6 +1,9 @@
+import { WorkspaceDialogHeading } from '@/components/WorkspaceDialogHeading';
+import { KornFolderIcon } from '@/components/KornFolderIcon';
+import { ActionIcon } from './ActionIcon';
 import { useEffect, useRef, useState } from 'react';
 import { ShareAccessList } from './ShareAccessList';
-import { sileo } from 'sileo';
+import { sileo } from '@/lib/notifications';
 import { authenticatedFetch } from '@/lib/api-client';
 import type { FolderActionDialogProps } from '@/types';
 
@@ -33,17 +36,16 @@ export function FolderActionDialog({ folder, action, copy, onClose, onSaved }: F
     finally { setBusy(false); }
   }
   return <dialog ref={dialog} aria-labelledby="folder-action-title" aria-describedby="folder-action-description" onCancel={(event) => { if (busy) event.preventDefault(); else onClose(); }} className="fixed inset-0 m-auto max-h-[90svh] w-[min(92vw,520px)] overflow-y-auto rounded-2xl border border-line bg-surface p-6 text-ink shadow-panel backdrop:bg-black/60">
-    <h2 id="folder-action-title" className="mb-4 text-lg font-semibold">{action === 'share' ? `${title} “${folder.name}”` : title}</h2>
-    {action !== 'share' && <p className="mb-4 break-all text-sm">{folder.name}</p>}
+    <WorkspaceDialogHeading id="folder-action-title" title={title} resource={folder.name} warning={action === 'delete'} icon={action === 'share' ? <ActionIcon name="share" /> : action === 'delete' ? <ActionIcon name="delete" /> : <KornFolderIcon />} />
     {action !== 'share' && <p id="folder-action-description" className="mb-4 text-sm text-muted">{action === 'delete' ? copy.folderDeletePolicy : copy.folderNameLabel}</p>}
     <form onSubmit={(event) => { event.preventDefault(); void submit(); }} className="grid gap-4">
       {action !== 'delete' && <label className="grid gap-2 text-sm">{action === 'share' ? copy.shareEmail : copy.folderNameLabel}<input autoFocus required maxLength={255} disabled={busy} value={value} onChange={(event) => setValue(event.target.value)} className="min-h-11 rounded-xl border border-line bg-raised px-3 text-ink" /></label>}
       {action === 'share' && <select aria-label={copy.accessRole} value={role} disabled={busy} onChange={(event) => setRole(event.target.value)} className="min-h-11 rounded-xl border border-line bg-raised px-3"><option value="READER">{copy.shareReader}</option><option value="EDITOR">{copy.shareEditor}</option></select>}
       {error && <p role="alert" className="text-sm text-status">{error}</p>}
-      <div className="flex justify-end gap-2">{action !== 'share' && <button autoFocus={action === 'delete'} type="button" disabled={busy} onClick={onClose} className="min-h-11 rounded-xl px-4">{copy.cancel}</button>}<button disabled={busy} type="submit" className="min-h-11 rounded-xl bg-accent px-4 text-white disabled:opacity-50">{action === 'share' ? copy.addPerson : title}</button></div>
+      <div className="flex justify-end gap-2">{action !== 'share' && <button autoFocus={action === 'delete'} type="button" disabled={busy} onClick={onClose} className="min-h-11 rounded-xl px-4">{copy.cancel}</button>}<button disabled={busy} type="submit" className="min-h-11 rounded-xl bg-accent px-4 text-surface disabled:opacity-50">{action === 'share' ? copy.addPerson : title}</button></div>
     </form>
     {action === 'share' && <ShareAccessList resourceId={folder.id} kind="folders" copy={copy} refreshKey={version} onChanged={onSaved} />}
     {action === 'share' && <p id="folder-action-description" className="text-xs leading-relaxed text-muted">{copy.folderEditorHint}</p>}
-    {action === 'share' && <div className="mt-5 flex justify-end border-t border-line pt-4"><button type="button" disabled={busy} onClick={onClose} className="min-h-11 rounded-full bg-accent px-6 text-sm font-semibold text-white disabled:opacity-50">{copy.done}</button></div>}
+    {action === 'share' && <div className="mt-5 flex justify-end border-t border-line pt-4"><button type="button" disabled={busy} onClick={onClose} className="min-h-11 rounded-full bg-accent px-6 text-sm font-semibold text-surface disabled:opacity-50">{copy.done}</button></div>}
   </dialog>;
 }

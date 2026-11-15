@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sileo } from 'sileo';
+import { sileo } from '@/lib/notifications';
 import { authenticatedFetch } from '@/lib/api-client';
 import { isStoredFile } from '@/features/files/is-stored-file';
 import { isStoredFolder } from '@/features/files/is-folder-contents';

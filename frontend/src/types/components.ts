@@ -4,6 +4,21 @@ import type { StoredFile, StoredFolder, ItemPreference, ItemOrganizationPatch, S
 import type { TranslationCatalog } from './i18n';
 import type { Language, Theme } from './preferences';
 
+export interface WorkspaceDialogHeadingProps {
+  id: string;
+  title: string;
+  icon: ReactNode;
+  resource?: string;
+  warning?: boolean;
+}
+
+export interface FileEmptyStateProps {
+  heading: string;
+  description: string;
+  uploadLabel: string;
+  onUpload?: () => void;
+}
+
 export interface ActionButtonProps {
   ariaLabel: string;
   children: ReactNode;
@@ -41,6 +56,8 @@ export interface WorkspaceHeaderProps {
   onUploadFolderClick?: () => void;
   /** Si no se pasa, el botón de crear carpeta no se muestra. */
   onCreateFolder?: () => void;
+  detailsOpen?: boolean;
+  onToggleDetails?: () => void;
 }
 
 export interface CreateFolderDialogProps {
@@ -119,7 +136,6 @@ export interface FolderActionDialogProps {
 
 export interface FilesPageProps {
   collapsibleSections?: boolean;
-  listView?: boolean;
   initialSortOrder?: SortOrder;
   foldersLabel?: string;
   filesLabel?: string;
@@ -177,6 +193,8 @@ export interface FileViewerProps {
   apiUrl: (path: string) => string;
   onClose: () => void;
   onDelete: () => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
 }
 
 export interface SessionProviderProps {
