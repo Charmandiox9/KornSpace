@@ -2,6 +2,15 @@ import type { SileoOptions, SileoState } from 'sileo';
 import type { UploadQueue } from './files';
 import type { TranslationCatalog } from './i18n';
 
+export interface NotificationOptions extends SileoOptions {
+  mascot?: boolean;
+}
+
+export interface RoosterNotificationIconProps {
+  state: SileoState;
+  activity?: 'uploading' | 'waiting';
+}
+
 export interface UploadNotificationsProps {
   queue: UploadQueue;
   copy: TranslationCatalog;

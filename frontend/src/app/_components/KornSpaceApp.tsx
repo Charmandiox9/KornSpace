@@ -27,7 +27,7 @@ import { useMotionPreferences } from '@/hooks/use-motion-preferences';
 import { useItemPreferences } from '@/hooks/use-item-preferences';
 import { useUploadQueue } from '@/hooks/use-upload-queue';
 import { getSessionDestination } from '@/features/auth/session-destination';
-import { sileo } from 'sileo';
+import { sileo } from '@/lib/notifications';
 import { FOLDER_CONTENTS_QUERY } from '@/graphql/operations';
 
 // Vistas del espacio de trabajo que comparten el shell con sidebar (todas viven bajo la ruta '/files' de sesión).
@@ -145,7 +145,7 @@ export default function KornSpaceApp() {
       setNotice('');
       const title = path.split('?')[0].endsWith('/trash') ? copy.fileMovedToTrash
         : path.split('?')[0].endsWith('/restore') ? copy.fileRestored : copy.filePermanentlyDeleted;
-      sileo.success({ title, duration: 4000 });
+      sileo.success({ title, duration: 4000, mascot: true });
       await refreshFiles(pathname === '/trash');
     } catch (error: unknown) {
       const message = toUserMessage(error, copy.fileActionFailed, copy.networkError);
@@ -218,7 +218,7 @@ export default function KornSpaceApp() {
       }
       for (const [folderId, groupedFiles] of uploadsByFolder) enqueue(groupedFiles, folderId, uploadFolderNames.get(folderId) ?? copy.myDrive);
       setNotice('');
-      sileo.success({ title: copy.folderQueued, duration: 4000 });
+      sileo.success({ title: copy.folderQueued, duration: 4000, mascot: true });
       await refreshFiles(false, rootParentId);
     } catch (error: unknown) {
       const message = toUserMessage(error, copy.folderUploadFailed, copy.networkError);

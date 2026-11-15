@@ -3,7 +3,7 @@ import { KornFolderIcon } from '@/components/KornFolderIcon';
 import { ActionIcon } from './ActionIcon';
 import { useEffect, useRef, useState } from 'react';
 import { ShareAccessList } from './ShareAccessList';
-import { sileo } from 'sileo';
+import { sileo } from '@/lib/notifications';
 import { authenticatedFetch } from '@/lib/api-client';
 import type { FolderActionDialogProps } from '@/types';
 

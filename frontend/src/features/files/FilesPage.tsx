@@ -21,7 +21,7 @@ import dynamic from 'next/dynamic';
 const FileViewer = dynamic(() => import('./FileViewer').then((module) => module.FileViewer));
 import { FileEditDialog } from './FileEditDialog';
 import { authenticatedFetch } from '@/lib/api-client';
-import { sileo } from 'sileo';
+import { sileo } from '@/lib/notifications';
 import Link from 'next/link';
 import { ActionMenu } from './ActionMenu';
 import { CollapsibleSection } from './CollapsibleSection';
@@ -263,7 +263,7 @@ export function FilesPage({ collapsibleSections = false, initialSortOrder = 'nam
     </dialog>}
     {emptying && <dialog ref={emptyDialog} onCancel={(event) => { if (emptyBusy) event.preventDefault(); else setEmptying(false); }} aria-labelledby="empty-trash-title" className="fixed inset-0 m-auto w-[min(92vw,460px)] rounded-2xl border border-line bg-surface p-6 text-ink shadow-panel backdrop:bg-black/60">
       <WorkspaceDialogHeading id="empty-trash-title" title={copy.emptyTrashAction} warning icon={<ActionIcon name="delete" />} /><p className="mb-6 text-sm leading-6 text-muted">{copy.emptyTrashDescription}</p><div className="flex justify-end gap-2"><button type="button" disabled={emptyBusy} className="min-h-11 rounded-xl px-4 text-sm" onClick={() => setEmptying(false)}>{copy.cancel}</button><button type="button" disabled={emptyBusy} className="min-h-11 rounded-xl bg-status px-4 text-sm font-semibold text-white" onClick={() => { setEmptyBusy(true); void (async () => {
-        try { const response = await authenticatedFetch('/api/files/trash', { method: 'DELETE' }); const result: unknown = await response.json(); if (!response.ok) throw new Error(); if (typeof result === 'object' && result !== null && 'pending' in result && typeof result.pending === 'number' && result.pending > 0) sileo.error({ title: copy.emptyTrashPending }); else sileo.success({ title: copy.filePermanentlyDeleted }); await onChanged?.(); setEmptying(false); } catch { sileo.error({ title: copy.fileActionFailed }); } finally { setEmptyBusy(false); }
+        try { const response = await authenticatedFetch('/api/files/trash', { method: 'DELETE' }); const result: unknown = await response.json(); if (!response.ok) throw new Error(); if (typeof result === 'object' && result !== null && 'pending' in result && typeof result.pending === 'number' && result.pending > 0) sileo.error({ title: copy.emptyTrashPending }); else sileo.success({ title: copy.filePermanentlyDeleted, mascot: true }); await onChanged?.(); setEmptying(false); } catch { sileo.error({ title: copy.fileActionFailed }); } finally { setEmptyBusy(false); }
       })(); }}>{copy.emptyTrashAction}</button></div>
     </dialog>}
   </section>;
