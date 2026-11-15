@@ -474,7 +474,7 @@ export default function KornSpaceApp() {
         ) : pathname === '/home' || pathname === '/shared' ? (
           <LibraryPage key={pathname} {...filePageProps} sharedOnly={pathname === '/shared'} refreshKey={libraryVersion} />
         ) : (
-          <FilesPage {...filePageProps} listView />
+          <FilesPage {...filePageProps} />
         )}
         <footer className="mt-auto pt-6 text-center text-[11px] text-muted">{copy.footer}</footer>
       </main>

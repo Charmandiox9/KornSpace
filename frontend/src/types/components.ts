@@ -121,7 +121,6 @@ export interface FolderActionDialogProps {
 
 export interface FilesPageProps {
   collapsibleSections?: boolean;
-  listView?: boolean;
   initialSortOrder?: SortOrder;
   foldersLabel?: string;
   filesLabel?: string;

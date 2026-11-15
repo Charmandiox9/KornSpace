@@ -202,6 +202,9 @@ export interface TranslationCatalog {
   fileActionFailed: string;
   fileName: string;
   fileSize: string;
+  fileView: string;
+  fileViewGrid: string;
+  fileViewList: string;
   fileStatus: string;
   fileReady: string;
   fileProcessing: string;

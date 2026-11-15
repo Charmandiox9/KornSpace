@@ -4,6 +4,7 @@ import { CreateFolderDialog } from '@/components/CreateFolderDialog';
 import { WorkspaceHeader, WORKSPACE_TITLE_ID } from '@/components/WorkspaceHeader';
 import { formatFileSize } from '@/lib/format-file-size';
 import { formatFileDate } from '@/lib/format-file-date';
+import { useFileListView } from '@/hooks/use-file-list-view';
 import { FileStatusBadge } from './FileStatusBadge';
 import type { FilesPageProps, FolderActionSelection, DraggedResource, ResourceActivity, StoredFile, StoredFolder, SortOrder } from '@/types';
 import { useMotionPreferences } from '@/hooks/use-motion-preferences';
@@ -24,7 +25,7 @@ import { CollapsibleSection } from './CollapsibleSection';
 import { ShareAccessList } from './ShareAccessList';
 import { useSession } from '@/features/auth/SessionProvider';
 
-export function FilesPage({ collapsibleSections = false, listView = false, initialSortOrder = 'nameAsc', foldersLabel, filesLabel, emptyLabel, itemPreferences = [], showQuickAccess = false, onOrganize, userId, copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, notice, apiUrl, onUpload, onUploadDirectory, onNavigate, onMoveToTrash, onDeletePermanent, onRestore, onCreateFolder, onChanged, title, toolbar, initialTrash = false, isLoading = false }: FilesPageProps) {
+export function FilesPage({ collapsibleSections = false, initialSortOrder = 'nameAsc', foldersLabel, filesLabel, emptyLabel, itemPreferences = [], showQuickAccess = false, onOrganize, userId, copy, files, folders, currentFolder, breadcrumbs, currentFolderId, trash, notice, apiUrl, onUpload, onUploadDirectory, onNavigate, onMoveToTrash, onDeletePermanent, onRestore, onCreateFolder, onChanged, title, toolbar, initialTrash = false, isLoading = false }: FilesPageProps) {
   const { user } = useSession();
   const [sortOrder, setSortOrder] = useState<SortOrder>(initialSortOrder);
   const [actionSelection, setActionSelection] = useState<string | null>(null);
@@ -146,7 +147,7 @@ export function FilesPage({ collapsibleSections = false, listView = false, initi
   const navigableFiles = shownFiles.filter(canOpen);
   const viewingIndex = viewing ? navigableFiles.findIndex((file) => file.id === viewing.id) : -1;
 
-  const showListView = listView && !initialTrash;
+  const { listView: showListView, changeView } = useFileListView();
 
   return <section className="min-w-0 w-full flex-1" aria-labelledby={WORKSPACE_TITLE_ID}>
     {dragging && createPortal(<div data-file-drop-overlay className="pointer-events-none fixed inset-2 z-[100] rounded-2xl border-2 border-accent bg-accent/5 motion-safe:transition-colors" aria-hidden="true"><div className="absolute inset-x-4 bottom-8 flex justify-center"><span className="max-w-full truncate rounded-2xl border border-accent-line bg-surface px-6 py-4 text-sm font-semibold text-accent shadow-panel">{isInternalDrag ? copy.moveToFolder : copy.dropFilesNow} · {dropFolderName}</span></div></div>, document.body)}
@@ -176,7 +177,11 @@ export function FilesPage({ collapsibleSections = false, listView = false, initi
     <div className="flex items-start gap-0">
       <div ref={grid} className={`min-w-0 flex-1 py-4 ${detailsOpen ? 'min-[1101px]:pr-80' : ''}`} aria-busy={isLoading}>
         {toolbar}
-        <div className="mb-1 flex justify-end"><label className="flex items-center gap-2 text-xs text-muted">{copy.sortBy}<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as SortOrder)} className="min-h-10 rounded-lg border border-line bg-raised px-3 text-ink">{(['nameAsc', 'nameDesc', 'modifiedDesc', 'modifiedAsc', 'sizeDesc', 'sizeAsc'] as const).map((order) => <option key={order} value={order}>{copy[order]}</option>)}</select></label></div>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div role="group" aria-label={copy.fileView} className="inline-flex rounded-lg border border-line bg-raised p-1">
+            <button type="button" aria-pressed={!showListView} onClick={() => changeView(false)} className={`inline-flex min-h-10 items-center gap-2 rounded-md px-3 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-accent ${!showListView ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-surface hover:text-ink'}`}><svg aria-hidden="true" className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>{copy.fileViewGrid}</button>
+            <button type="button" aria-pressed={showListView} onClick={() => changeView(true)} className={`inline-flex min-h-10 items-center gap-2 rounded-md px-3 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-accent ${showListView ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-surface hover:text-ink'}`}><svg aria-hidden="true" className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M8 5h13M8 12h13M8 19h13M3 5h1M3 12h1M3 19h1" /></svg>{copy.fileViewList}</button>
+          </div><label className="flex items-center gap-2 text-xs text-muted">{copy.sortBy}<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as SortOrder)} className="min-h-10 rounded-lg border border-line bg-raised px-3 text-ink">{(['nameAsc', 'nameDesc', 'modifiedDesc', 'modifiedAsc', 'sizeDesc', 'sizeAsc'] as const).map((order) => <option key={order} value={order}>{copy[order]}</option>)}</select></label></div>
         {initialTrash && trash.length > 0 && <div className="mb-5 flex justify-end"><button type="button" className="min-h-10 rounded-xl border border-line px-4 text-xs font-semibold text-status hover:bg-raised" onClick={() => setEmptying(true)}>{copy.emptyTrashAction}</button></div>}
         {notice && <div role="alert" className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-raised p-4 text-sm text-muted"><p className="min-w-0 flex-1 break-words">{notice}</p>{onChanged && <button type="button" className="min-h-10 rounded-full border border-line px-4 text-xs font-semibold text-accent" onClick={() => void onChanged()}>{copy.retryLoad}</button>}</div>}
         {isLoading ? <div role="status" aria-label={copy.loadingFiles} className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4">{Array.from({ length: 8 }, (_, index) => <div key={index} className="animate-pulse overflow-hidden rounded-2xl border border-line bg-raised motion-reduce:animate-none"><div className="aspect-[4/3] bg-line/40" /><div className="space-y-3 p-4"><div className="h-3 w-3/4 rounded bg-line" /><div className="h-2 w-1/2 rounded bg-line/60" /></div></div>)}</div> : <>
