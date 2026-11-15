@@ -4,6 +4,13 @@ import type { StoredFile, StoredFolder, ItemPreference, ItemOrganizationPatch, S
 import type { TranslationCatalog } from './i18n';
 import type { Language, Theme } from './preferences';
 
+export interface FileEmptyStateProps {
+  heading: string;
+  description: string;
+  uploadLabel: string;
+  onUpload?: () => void;
+}
+
 export interface ActionButtonProps {
   ariaLabel: string;
   children: ReactNode;

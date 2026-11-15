@@ -48,7 +48,7 @@ export function Sidebar(props: SidebarProps) {
   const { copy } = props;
   const pathname = usePathname() ?? '/files';
 
-  // Solo destinos con vista propia: cada href tiene su ruta en app/(workspace).
+  // Each navigation destination has its own App Router route.
   const navItems: WorkspaceNavItem[] = [
     { href: '/home', label: copy.home, icon: <HomeIcon /> },
     { href: '/files', label: copy.myDrive, icon: <DriveIcon /> },
@@ -61,8 +61,8 @@ export function Sidebar(props: SidebarProps) {
   return (
     <aside className="sticky top-0 z-[60] flex h-svh min-h-0 self-start flex-col gap-[34px] border-r border-line/85 bg-surface px-[18px] pt-7 pb-5 max-[760px]:items-center max-[760px]:gap-7 max-[760px]:px-2.5 max-[760px]:pt-5 max-[760px]:pb-4 max-[420px]:px-[7px]" aria-label={copy.sidebarLabel}>
       <Link className={`inline-flex shrink-0 items-center gap-[11px] rounded-xl text-ink no-underline ${focusRing}`} href="/home" aria-label="KornSpace">
-        <span className="grid size-[38px] place-items-center rounded-[11px] text-lg font-bold text-white shadow-md shadow-accent/25 max-[760px]:size-[42px] max-[420px]:size-[38px] bg-linear-to-br from-accent to-secondary" aria-hidden="true"><span className="size-8"><RoosterMark /></span></span>
-        <span className="text-[15px] font-semibold tracking-tight max-[760px]:hidden">KornSpace</span>
+        <span className="grid size-11 place-items-center rounded-xl text-lg font-bold text-white shadow-md shadow-accent/25 max-[760px]:size-[42px] max-[420px]:size-[38px] bg-linear-to-br from-accent to-secondary" aria-hidden="true"><span className="size-8"><RoosterMark /></span></span>
+        <span className="text-xl font-semibold tracking-tight max-[760px]:hidden">Korn<span className="font-normal text-accent">Space</span></span>
       </Link>
       <div id="workspace-create-actions" className="relative z-50 w-full" />
       <nav className="grid min-h-0 w-full flex-1 content-start gap-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]" aria-label={copy.workspaceNavigation}>
@@ -79,7 +79,7 @@ export function Sidebar(props: SidebarProps) {
               aria-current={isActive ? 'page' : undefined}
               className={`flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium no-underline transition-colors duration-150 max-[760px]:justify-center max-[760px]:px-2 ${focusRing} ${isActive ? 'bg-accent-soft font-semibold text-accent ring-1 ring-inset ring-accent-line' : 'text-muted hover:bg-raised hover:text-ink'}`}
             >
-              {item.icon}
+              <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${isActive ? 'bg-surface text-accent' : ''}`}>{item.icon}</span>
               <span className="max-[760px]:sr-only">{item.label}</span>
             </Link>
           );
@@ -87,7 +87,7 @@ export function Sidebar(props: SidebarProps) {
       </nav>
       <div className="mt-auto grid w-full gap-3">
         <AccountMenu {...props} />
-        <p className="m-0 border-t border-line/85 px-2.5 pt-3.5 text-[11px] text-muted max-[760px]:hidden">KornSpace</p>
+        <p className="m-0 border-t border-line/85 px-2.5 pt-3.5 text-[11px] text-muted max-[760px]:hidden">{copy.workspaceBrandNote}</p>
       </div>
     </aside>
   );
