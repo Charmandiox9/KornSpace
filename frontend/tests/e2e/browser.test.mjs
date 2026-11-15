@@ -326,6 +326,69 @@ test('session navigation and multiple uploads in a real browser with a simulated
       await cdp.send('DOM.setFileInputFiles', { nodeId, files: filenames });
     };
 
+    if (process.env.NOTIFICATION_SMOKE === '1') {
+      await t.test('routine folder renaming uses a discreet confirmation without the mascot', async () => {
+        await until(() => evaluate("Boolean(document.querySelector('[data-entry=empty-folder] summary'))"), 'folder action menu');
+        await evaluate("document.querySelector('[data-entry=empty-folder] summary').click()");
+        await evaluate("document.querySelector('[aria-label=\"Renombrar carpeta: Empty folder\"]').click()");
+        await until(() => evaluate("Boolean(document.querySelector('dialog[open] input'))"), 'rename dialog');
+        await evaluate("(() => { const input = document.querySelector('dialog input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Renamed folder'); input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+        await evaluate("document.querySelector('dialog form').requestSubmit()");
+        await until(() => evaluate("Array.from(document.querySelectorAll('[data-sileo-toast]')).some(toast => toast.textContent.includes('Carpeta actualizada.'))"), 'rename confirmation');
+        assert.equal(await evaluate("Array.from(document.querySelectorAll('[data-sileo-toast]')).find(toast => toast.textContent.includes('Carpeta actualizada.')).querySelector('[data-rooster-notification]') === null"), true);
+        await until(() => evaluate("document.querySelectorAll('[data-sileo-toast]').length === 0"), 'routine notification dismissed', 12000);
+      });
+
+      await t.test('branded notifications preserve concurrent progress and adapt to themes, mobile and reduced motion', async () => {
+        const names = ['toast-brand-one.txt', 'toast-brand-two.txt'];
+        const paths = names.map((name) => path.join(temporaryDirectory, name));
+        await Promise.all(paths.map((filename) => writeFile(filename, Buffer.alloc(1024 * 1024, 'x'))));
+        await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 128 * 1024 });
+        await selectFiles(paths);
+        await until(() => evaluate("document.querySelectorAll('[data-upload-group] [role=progressbar]').length === 2"), 'concurrent progress');
+        await until(() => evaluate("Boolean(document.querySelector('[data-rooster-notification=uploading]'))"), 'rooster carrying upload');
+        const capture = async (suffix) => {
+          if (!process.env.UPLOAD_SCREENSHOT_PATH) return;
+          const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+          await writeFile(process.env.UPLOAD_SCREENSHOT_PATH.replace(/\.png$/u, `-${suffix}.png`), Buffer.from(screenshot.data, 'base64'));
+        };
+        assert.equal(await evaluate("document.querySelector('[data-rooster-notification=uploading]').dataset.roosterPose"), 'carrying');
+        await capture('dark');
+        await evaluate("document.documentElement.dataset.theme = 'light'");
+        await until(() => evaluate("document.querySelector('[data-sileo-viewport]')?.dataset.theme === 'light'"), 'light theme');
+        await capture('light');
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 360, height: 780, deviceScaleFactor: 1, mobile: true });
+        await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+        await until(() => evaluate("Array.from(document.querySelectorAll('[data-sileo-toast]:not([data-exiting=true])')).every(toast => { const r = toast.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; })"), 'mobile notification layout');
+        const bounds = await evaluate("Array.from(document.querySelectorAll('[data-sileo-toast]:not([data-exiting=true])')).map(toast => { const r = toast.getBoundingClientRect(); return { left: r.left, right: r.right }; })");
+        assert.ok(bounds.length > 0 && bounds.every((r) => r.left >= 0 && r.right <= 360), JSON.stringify(bounds));
+        assert.equal(await evaluate("Array.from(document.querySelectorAll('[data-rooster-notification] *')).every(node => getComputedStyle(node).animationName === 'none')"), true);
+        assert.equal(await evaluate("(() => { const r = document.querySelector('[data-upload-notification]').getBoundingClientRect(); return Boolean(document.elementFromPoint(r.left + 8, r.top + 10)?.closest('[data-sileo-toast]')); })()"), true, 'sidebar must not obscure notification content');
+        await capture('mobile');
+        const cancel = "document.querySelector('[data-upload-notification] button[aria-labelledby*=cancel]')";
+        assert.equal(await evaluate(`Boolean(${cancel})`), true);
+        await evaluate(`${cancel}.click()`);
+        await until(() => evaluate("Boolean(document.querySelector('[data-upload-state=cancelled]'))"), 'cancelled upload');
+        await until(() => evaluate("Array.from(document.querySelectorAll('[data-upload-state=cancelled] button')).some(button => button.innerText.includes('Reintentar'))"), 'retry control');
+        await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+        await evaluate("Array.from(document.querySelectorAll('[data-upload-state=cancelled] button')).find(button => button.innerText.includes('Reintentar')).click()");
+        await until(() => names.every((name) => records.some((record) => record.name === name)), 'both uploads completed');
+        await until(() => evaluate("Boolean(document.querySelector('[data-rooster-notification=success]'))"), 'success rooster');
+        assert.equal(await evaluate("document.querySelector('[data-rooster-notification=success]').dataset.roosterPose"), 'celebrating');
+        assert.equal(await evaluate("Array.from(document.querySelectorAll('[data-sileo-header-inner][data-layer=prev]')).every(node => getComputedStyle(node).display === 'none')"), true, 'reduced motion shows only the current status');
+        await capture('success');
+        const invalid = path.join(temporaryDirectory, 'brand-empty.txt');
+        await writeFile(invalid, '');
+        await selectFiles([invalid]);
+        await until(() => evaluate("Boolean(document.querySelector('[data-upload-state=invalid]'))"), 'validation warning');
+        await until(() => evaluate("Boolean(document.querySelector('[data-rooster-notification=warning]'))"), 'warning rooster');
+        assert.equal(await evaluate("document.querySelector('[data-rooster-notification=warning]').dataset.roosterPose"), 'helping');
+        assert.equal(await evaluate("document.querySelectorAll('[data-upload-toaster]').length"), 1);
+        assert.deepEqual(interceptionErrors, []);
+      });
+      return;
+    }
+
     await t.test('supports keyboard selection, multiple files, independent validation and partial failures', async () => {
       await cdp.send('Page.setInterceptFileChooserDialog', { enabled: true });
       await evaluate("window.testChooserRequested = false; document.querySelector('input[type=file]').addEventListener('click', () => { window.testChooserRequested = true; }); document.querySelector('button[aria-describedby=\"upload-hint\"]').focus()");
