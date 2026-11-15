@@ -18,6 +18,8 @@ import { UploadNotifications } from '@/features/files/UploadNotifications';
 import { isStoredFile } from '@/features/files/is-stored-file';
 import { readFolderContentsQuery, isStoredFolder } from '@/features/files/is-folder-contents';
 import { authenticatedFetch, apiUrl } from '@/lib/api-client';
+import { UserFacingError, toUserMessage } from '@/lib/user-facing-error';
+import { useProcessingPoll } from '@/hooks/use-processing-poll';
 import { translations } from '@/i18n';
 import { usePreferences } from '@/hooks/use-preferences';
 import { useAppMotion } from '@/hooks/use-app-motion';
@@ -103,9 +105,9 @@ export default function KornSpaceApp() {
       let trashPayload: unknown;
       if (includeTrash) {
         const trashResponse = await authenticatedFetch('/api/files/trash');
-        if (!trashResponse.ok) throw new Error(copy.loadError);
+        if (!trashResponse.ok) throw new UserFacingError(copy.loadError);
         trashPayload = await trashResponse.json();
-        if (!Array.isArray(trashPayload) || !trashPayload.every(isStoredFile)) throw new Error(copy.loadError);
+        if (!Array.isArray(trashPayload) || !trashPayload.every(isStoredFile)) throw new UserFacingError(copy.loadError);
       }
       if (version === refreshVersion.current) {
         hasLoadedFiles.current = true;
@@ -116,8 +118,8 @@ export default function KornSpaceApp() {
         setBreadcrumbs(filesPayload.breadcrumbs);
         if (includeTrash && Array.isArray(trashPayload)) setTrash(trashPayload);
       }
-    } catch {
-      if (version === refreshVersion.current) setNotice(copy.loadError);
+    } catch (error: unknown) {
+      if (version === refreshVersion.current) setNotice(toUserMessage(error, copy.loadError, copy.networkError));
     } finally {
       if (version === refreshVersion.current) {
         hasLoadedFiles.current = true;
@@ -127,6 +129,7 @@ export default function KornSpaceApp() {
   }, [copy.loadError, currentFolderId, pathname, user?.id]);
   const refreshFilesRef = useRef(refreshFiles);
   refreshFilesRef.current = refreshFiles;
+  useProcessingPoll(pathname === '/trash' ? trash : pathname === '/files' ? files : [], () => refreshFiles(pathname === '/trash'));
   const { queue, enqueue, cancelItem, retryItem, conflict, resolveConflict } = useUploadQueue((folderId) => folderId === currentFolderId ? refreshFiles(false, folderId) : Promise.resolve(), user?.id);
   async function mutateFile(path: string, method: 'POST' | 'DELETE'): Promise<void> {
     try {
@@ -136,16 +139,16 @@ export default function KornSpaceApp() {
         if (path.split('?')[0].endsWith('/restore') && typeof conflictBody === 'object' && conflictBody !== null && 'conflictId' in conflictBody && typeof conflictBody.conflictId === 'string') {
           setRestoreConflict({ path: path.split('?')[0], name: 'name' in conflictBody && typeof conflictBody.name === 'string' ? conflictBody.name : '', conflictId: conflictBody.conflictId }); return;
         }
-        throw new Error(copy.fileNameConflict);
+        throw new UserFacingError(copy.fileNameConflict);
       }
-      if (!response.ok) throw new Error(copy.fileActionFailed);
+      if (!response.ok) throw new UserFacingError(copy.fileActionFailed);
       setNotice('');
       const title = path.split('?')[0].endsWith('/trash') ? copy.fileMovedToTrash
         : path.split('?')[0].endsWith('/restore') ? copy.fileRestored : copy.filePermanentlyDeleted;
       sileo.success({ title, duration: 4000 });
       await refreshFiles(pathname === '/trash');
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : copy.fileActionFailed;
+      const message = toUserMessage(error, copy.fileActionFailed, copy.networkError);
       setNotice(message);
       sileo.error({ title: copy.fileActionFailed, description: message, duration: 5000 });
     }
@@ -157,9 +160,9 @@ export default function KornSpaceApp() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, parentId }),
     });
-    if (response.status === 409) throw new Error(copy.folderNameConflict);
-    if (response.status === 404) throw new Error(copy.folderParentMissing);
-    if (!response.ok) throw new Error(copy.folderCreateFailed);
+    if (response.status === 409) throw new UserFacingError(copy.folderNameConflict);
+    if (response.status === 404) throw new UserFacingError(copy.folderParentMissing);
+    if (!response.ok) throw new UserFacingError(copy.folderCreateFailed);
     setNotice('');
     sileo.success({ title: copy.folderCreated, duration: 4000 });
     await refreshFiles(false, parentId);
@@ -196,9 +199,9 @@ export default function KornSpaceApp() {
           return racedFolder.id;
         }
       }
-      if (!createResponse.ok) throw new Error(copy.folderUploadFailed);
+      if (!createResponse.ok) throw new UserFacingError(copy.folderUploadFailed);
       const createdPayload: unknown = await createResponse.json();
-      if (!isStoredFolder(createdPayload)) throw new Error(copy.folderUploadFailed);
+      if (!isStoredFolder(createdPayload)) throw new UserFacingError(copy.folderUploadFailed);
       folderCache.set(cacheKey, createdPayload.id);
       return createdPayload.id;
     }
@@ -218,7 +221,7 @@ export default function KornSpaceApp() {
       sileo.success({ title: copy.folderQueued, duration: 4000 });
       await refreshFiles(false, rootParentId);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : copy.folderUploadFailed;
+      const message = toUserMessage(error, copy.folderUploadFailed, copy.networkError);
       setNotice(message);
       sileo.error({ title: copy.folderUploadFailed, description: message, duration: 5000 });
     }
@@ -296,14 +299,14 @@ export default function KornSpaceApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username }),
       });
-      if (response.status === 409) throw new Error(copy.usernameTaken);
-      if (!response.ok) throw new Error(copy.usernameSaveError);
+      if (response.status === 409) throw new UserFacingError(copy.usernameTaken);
+      if (!response.ok) throw new UserFacingError(copy.usernameSaveError);
       const payload: unknown = await response.json();
-      if (!isAuthenticatedUser(payload)) throw new Error(copy.usernameSaveError);
+      if (!isAuthenticatedUser(payload)) throw new UserFacingError(copy.usernameSaveError);
       updateUser(payload);
       setUsername('');
     } catch (error: unknown) {
-      setNotice(error instanceof Error ? error.message : copy.usernameSaveError);
+      setNotice(toUserMessage(error, copy.usernameSaveError, copy.networkError));
     } finally {
       setIsSavingUsername(false);
     }
@@ -471,7 +474,7 @@ export default function KornSpaceApp() {
         ) : pathname === '/home' || pathname === '/shared' ? (
           <LibraryPage key={pathname} {...filePageProps} sharedOnly={pathname === '/shared'} refreshKey={libraryVersion} />
         ) : (
-          <FilesPage {...filePageProps} />
+          <FilesPage {...filePageProps} listView />
         )}
         <footer className="mt-auto pt-6 text-center text-[11px] text-muted">{copy.footer}</footer>
       </main>
