@@ -4,6 +4,14 @@ import type { StoredFile, StoredFolder, ItemPreference, ItemOrganizationPatch, S
 import type { TranslationCatalog } from './i18n';
 import type { Language, Theme } from './preferences';
 
+export interface WorkspaceDialogHeadingProps {
+  id: string;
+  title: string;
+  icon: ReactNode;
+  resource?: string;
+  warning?: boolean;
+}
+
 export interface FileEmptyStateProps {
   heading: string;
   description: string;

@@ -1,5 +1,7 @@
 'use client';
 
+import { KornFolderIcon } from './KornFolderIcon';
+import { WorkspaceDialogHeading } from './WorkspaceDialogHeading';
 import type { CreateFolderDialogProps } from '@/types';
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 
@@ -85,7 +87,7 @@ export function CreateFolderDialog({ copy, onClose, onSubmit }: CreateFolderDial
         className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-2xl max-[420px]:p-4"
         onKeyDown={handleKeyDown}
       >
-        <h2 id={titleId} className="mb-4 text-lg font-semibold">{copy.newFolder}</h2>
+        <WorkspaceDialogHeading id={titleId} title={copy.newFolder} icon={<KornFolderIcon />} />
         <form className="grid gap-4" noValidate onSubmit={(event) => void handleSubmit(event)}>
           <div className="grid gap-1.5">
             <label className="text-xs font-semibold text-muted" htmlFor={inputId}>{copy.folderNameLabel}</label>
@@ -106,7 +108,7 @@ export function CreateFolderDialog({ copy, onClose, onSubmit }: CreateFolderDial
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" className="min-h-11 cursor-pointer rounded-xl px-4 text-sm text-muted hover:bg-raised" disabled={isSaving} onClick={onClose}>{copy.cancel}</button>
-            <button type="submit" className="min-h-11 cursor-pointer rounded-xl border-0 bg-linear-to-br from-accent to-secondary px-4 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-70" disabled={isSaving}>{copy.createFolder}</button>
+            <button type="submit" className="min-h-11 cursor-pointer rounded-xl border-0 bg-linear-to-br from-accent to-secondary px-4 text-sm font-semibold text-surface disabled:cursor-wait disabled:opacity-70" disabled={isSaving}>{copy.createFolder}</button>
           </div>
         </form>
       </section>
