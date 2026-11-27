@@ -21,3 +21,5 @@ __pycache__/
 *.py[cod]
 
 .local-backups/
+
+/artifacts
