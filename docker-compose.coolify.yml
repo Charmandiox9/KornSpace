@@ -29,7 +29,7 @@ services:
       S3_ENDPOINT: http://localstack:4566
       S3_BUCKET: kornspace-files
       SQS_ENDPOINT: http://localstack:4566
-      SQS_QUEUE_URL: http://localstack:4566/queue/us-east-1/000000000000/kornspace-file-processing
+      SQS_QUEUE_URL: http://localstack:4566/000000000000/kornspace-file-processing
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,7 +72,8 @@ services:
       SERVICES: s3,sqs
       AWS_DEFAULT_REGION: us-east-1
       LOCALSTACK_HOST: localstack:4566
-      SQS_ENDPOINT_STRATEGY: path
+      # The Terraform AWS provider expects /<account-id>/<queue-name>.
+      SQS_ENDPOINT_STRATEGY: "off"
       PERSISTENCE: "1"
       LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:?Define LOCALSTACK_AUTH_TOKEN en Coolify}
     volumes:
