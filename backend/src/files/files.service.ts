@@ -9,13 +9,13 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomUUID, createHash } from 'node:crypto';
-import { Transform, type Readable } from 'node:stream';
-import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { Readable, Transform } from 'node:stream';
+import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand, ListMultipartUploadsCommand } from '@aws-sdk/client-s3';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { PrismaService } from '../prisma/prisma.service';
 import { folderAccess } from '../folders/folder-policy';
 import { fileAccess, nameConflict, validateFileName } from './file-policy';
-import { FILE_STORAGE_CLIENTS, type FileStorageClients, type ProcessFileMessage, type StoredFileResponse, type UploadFileResult, type UploadLifecycle } from './file.types';
+import { FILE_STORAGE_CLIENTS, type FileStorageClients, type MultipartFile, type MultipartUpload, type ProcessFileMessage, type StoredFileResponse, type UploadFileResult, type UploadLifecycle } from './file.types';
 
 const defaultAsyncThresholdBytes = 10 * 1024 * 1024;
 const defaultMaxFileSizeBytes = 1024 * 1024 * 1024;
@@ -172,39 +172,77 @@ export class FilesService {
     ownerId: string,
     lifecycle: UploadLifecycle = {},
   ): Promise<UploadFileResult> {
-    const actorId = ownerId;
+    return this.storeUpload({ name, contentType, sizeBytes }, ownerId, lifecycle,
+      (key, asynchronous) => this.writeSingleObject(source, key, contentType, sizeBytes, asynchronous, lifecycle.signal));
+  }
+
+  async startMultipart(fileId: string, contentType: string): Promise<string> {
+    const response = await this.s3.send(new CreateMultipartUploadCommand({
+      Bucket: this.configuration.bucket, Key: `files/${fileId}`, ContentType: contentType.trim(),
+    }));
+    if (!response.UploadId) throw new ServiceUnavailableException('No se pudo iniciar la carga por partes.');
+    return response.UploadId;
+  }
+
+  async uploadPart(fileId: string, uploadId: string, partNumber: number, body: Buffer, signal: AbortSignal): Promise<string> {
+    const result = await this.s3.send(new UploadPartCommand({
+      Bucket: this.configuration.bucket, Key: `files/${fileId}`, UploadId: uploadId,
+      PartNumber: partNumber, Body: body, ContentLength: body.length,
+    }), { abortSignal: signal });
+    if (!result.ETag) throw new ServiceUnavailableException('El almacenamiento no confirmó la parte.');
+    return result.ETag;
+  }
+
+  async completeMultipart(file: MultipartUpload, ownerId: string, lifecycle: UploadLifecycle): Promise<UploadFileResult> {
+    return this.storeUpload(file, ownerId, { folderId: file.folderId, replaceFileId: file.replaceFileId, ...lifecycle }, async (key, asynchronous) => {
+      await this.s3.send(new CompleteMultipartUploadCommand({
+        Bucket: this.configuration.bucket, Key: key, UploadId: file.uploadId,
+        MultipartUpload: { Parts: file.parts.map((ETag, index) => ({ ETag, PartNumber: index + 1 })) },
+      }));
+      if (asynchronous) return null;
+      const { Body } = await this.s3.send(new GetObjectCommand({ Bucket: this.configuration.bucket, Key: key }), { abortSignal: lifecycle.signal });
+      if (!(Body instanceof Readable)) throw new Error('The completed object has no readable body');
+      const content = this.createHashingStream(Body, file.sizeBytes);
+      for await (const _ of content.stream) { /* Drain the stream to calculate its checksum. */ }
+      return content.checksum();
+    });
+  }
+
+  async abortMultipart(fileId: string, uploadId?: string): Promise<void> {
+    const key = `files/${fileId}`;
+    const ids = uploadId ? [uploadId] : (await this.s3.send(new ListMultipartUploadsCommand({
+      Bucket: this.configuration.bucket, Prefix: key,
+    }))).Uploads?.filter((upload) => upload.Key === key).map((upload) => upload.UploadId) ?? [];
+    for (const id of ids) {
+      if (!id) continue;
+      try {
+        await this.s3.send(new AbortMultipartUploadCommand({ Bucket: this.configuration.bucket, Key: key, UploadId: id }));
+      } catch (error: unknown) {
+        if (!(error instanceof Error) || error.name !== 'NoSuchUpload') throw error;
+      }
+    }
+  }
+
+  async checkUploadTarget({ name, contentType, sizeBytes, folderId, replaceFileId }: MultipartFile, actorId: string): Promise<{ ownerId: string; normalizedName: string }> {
     const normalizedName = this.validateUpload(name, contentType, sizeBytes);
-    if (lifecycle.folderId) ownerId = (await folderAccess(this.prisma, lifecycle.folderId, ownerId, true)).folder.ownerId;
-    const collision = await this.prisma.storedFile.findFirst({ where: { ownerId, folderId: lifecycle.folderId ?? null, name: normalizedName, deletedAt: null } });
-    if (collision && collision.id !== lifecycle.replaceFileId) nameConflict(collision);
+    const ownerId = folderId ? (await folderAccess(this.prisma, folderId, actorId, true)).folder.ownerId : actorId;
+    const collision = await this.prisma.storedFile.findFirst({ where: { ownerId, folderId: folderId ?? null, name: normalizedName, deletedAt: null } });
+    if (collision && collision.id !== replaceFileId) nameConflict(collision);
+    return { ownerId, normalizedName };
+  }
+
+  private async storeUpload(
+    { name, contentType, sizeBytes }: MultipartFile, actorId: string, lifecycle: UploadLifecycle,
+    writeObject: (key: string, asynchronous: boolean) => Promise<string | null>,
+  ): Promise<UploadFileResult> {
+    const { ownerId, normalizedName } = await this.checkUploadTarget({ name, contentType, sizeBytes, folderId: lifecycle.folderId, replaceFileId: lifecycle.replaceFileId }, actorId);
     lifecycle.signal?.throwIfAborted();
     const id = lifecycle.fileId ?? randomUUID();
     const s3Key = `files/${id}`;
-    const streamMetadata = this.createHashingStream(source, sizeBytes);
-    const storageController = new AbortController();
-    const abort = () => {
-      source.unpipe(streamMetadata.stream);
-      if (streamMetadata.receivedBytes() === sizeBytes) {
-        // Once all bytes reached the storage stream, wait for PUT acknowledgement
-        // before compensating. Aborting that response could race a later S3 commit.
-        if (!streamMetadata.stream.writableEnded) streamMetadata.stream.end();
-      } else {
-        // The request is already being aborted; destroying with an error can emit
-        // an unhandled stream error after the storage consumer has detached.
-        streamMetadata.stream.destroy();
-        storageController.abort();
-      }
-    };
-    lifecycle.signal?.addEventListener('abort', abort, { once: true });
-
+    const asynchronous = sizeBytes > this.configuration.asyncThresholdBytes;
+    let checksum: string | null;
     try {
-      await this.s3.send(new PutObjectCommand({
-        Bucket: this.configuration.bucket,
-        Key: s3Key,
-        Body: streamMetadata.stream,
-        ContentLength: sizeBytes,
-        ContentType: contentType.trim(),
-      }), { abortSignal: storageController.signal });
+      checksum = await writeObject(s3Key, asynchronous);
       lifecycle.signal?.throwIfAborted();
       await lifecycle.beforeCommit?.();
     } catch (error: unknown) {
@@ -216,11 +254,8 @@ export class FilesService {
         throw new PayloadTooLargeException(`El tamaño máximo permitido es ${this.configuration.maxFileSizeBytes} bytes.`);
       }
       throw new ServiceUnavailableException('No fue posible guardar el archivo en el almacenamiento.');
-    } finally {
-      lifecycle.signal?.removeEventListener('abort', abort);
     }
 
-    const asynchronous = sizeBytes > this.configuration.asyncThresholdBytes;
     let replacedId: string | undefined;
     const replacedAt = new Date();
     let file: Awaited<ReturnType<PrismaService['storedFile']['create']>>;
@@ -234,7 +269,7 @@ export class FilesService {
           s3Key,
           ownerId,
           folderId: lifecycle.folderId ?? null,
-          checksum: asynchronous ? null : streamMetadata.checksum(),
+          checksum,
           status: asynchronous ? 'PROCESSING' : 'AVAILABLE',
         },
       });
@@ -413,6 +448,31 @@ export class FilesService {
       throw new BadRequestException('El tipo de contenido no es válido.');
     }
     return normalizedName;
+  }
+
+  private async writeSingleObject(source: Readable, key: string, contentType: string, sizeBytes: number, asynchronous: boolean, signal?: AbortSignal): Promise<string | null> {
+    const content = this.createHashingStream(source, sizeBytes);
+    const storageController = new AbortController();
+    const abort = () => {
+      source.unpipe(content.stream);
+      if (content.receivedBytes() === sizeBytes) {
+        // Wait for acknowledgement before compensating a PUT that received all bytes.
+        if (!content.stream.writableEnded) content.stream.end();
+      } else {
+        content.stream.destroy();
+        storageController.abort();
+      }
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      await this.s3.send(new PutObjectCommand({
+        Bucket: this.configuration.bucket, Key: key, Body: content.stream,
+        ContentLength: sizeBytes, ContentType: contentType.trim(),
+      }), { abortSignal: storageController.signal });
+      return asynchronous ? null : content.checksum();
+    } finally {
+      signal?.removeEventListener('abort', abort);
+    }
   }
 
   private createHashingStream(source: Readable, expectedSizeBytes: number): FileStreamMetadata {

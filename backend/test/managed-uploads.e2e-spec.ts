@@ -1,9 +1,9 @@
 import { strict as assert } from 'node:assert';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { FilesController } from '../src/files/files.controller';
 import { FilesService } from '../src/files/files.service';
@@ -20,7 +20,7 @@ async function until(check: () => Promise<boolean>): Promise<void> {
   throw new Error('Upload state did not settle');
 }
 
-test('HTTP cancellation of an active body cleans storage, isolates owners, and permits a fresh retry', async () => {
+async function createUploadApp() {
   const harness = createManagedHarness();
   const module = await Test.createTestingModule({
     controllers: [FilesController],
@@ -39,9 +39,15 @@ test('HTTP cancellation of an active body cleans storage, isolates owners, and p
   }).compile();
   const app = module.createNestApplication();
   app.setGlobalPrefix('api');
+  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }));
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address() as AddressInfo;
   const base = `http://127.0.0.1:${address.port}/api/files`;
+  return { app, base, harness };
+}
+
+test('HTTP cancellation of an active body cleans storage, isolates owners, and permits a fresh retry', async () => {
+  const { app, base, harness } = await createUploadApp();
   const operationId = randomUUID();
   const headers = { 'x-test-user': 'owner' };
   const upload = request(`${base}?name=partial.txt`, {
@@ -81,6 +87,63 @@ test('HTTP cancellation of an active body cleans storage, isolates owners, and p
     assert.equal(harness.objects.size, 1);
   } finally {
     upload.destroy();
+    await app.close();
+  }
+});
+
+test('HTTP multipart uploads validate ordering and ownership, assemble bytes, enqueue and support cancellation', async () => {
+  const { app, base, harness } = await createUploadApp();
+  const headers = { 'x-test-user': 'owner' };
+  const start = (operation: string, sizeBytes: number) => fetch(`${base}/uploads/${operation}`, {
+    method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'setup.exe', contentType: 'application/octet-stream', sizeBytes }),
+  });
+  const part = (path: string, bytes: Uint8Array<ArrayBuffer>, owner = 'owner') => fetch(path, {
+    method: 'PUT', headers: { 'x-test-user': owner, 'content-type': 'application/octet-stream' }, body: bytes,
+  });
+  const chunk = Buffer.alloc(16 * 1024 * 1024, 42);
+  const tail = Buffer.from([1, 2, 3]);
+  const operation = randomUUID();
+  const path = `${base}/uploads/${operation}`;
+  try {
+    assert.equal((await start(randomUUID(), 1024 ** 3 + 1)).status, 413);
+    const started = await start(operation, chunk.length + tail.length);
+    assert.equal(started.status, 201);
+    assert.deepEqual(await started.json(), { partSizeBytes: chunk.length });
+    assert.equal((await start(operation, chunk.length + tail.length)).status, 409);
+    assert.equal((await part(`${path}/parts/1`, tail, 'another')).status, 404);
+    assert.equal((await part(`${path}/parts/2`, tail)).status, 400);
+    assert.equal((await part(`${path}/parts/1`, tail)).status, 400);
+    assert.equal((await fetch(`${path}/complete`, { method: 'POST', headers })).status, 400);
+    assert.equal((await part(`${path}/parts/1`, chunk)).status, 204);
+    assert.equal((await part(`${path}/parts/2`, tail)).status, 204);
+    assert.equal(harness.records.length, 0);
+    assert.equal((await fetch(`${path}/complete`, { method: 'POST', headers })).status, 202);
+    assert.equal(harness.records.length, 1);
+    assert.equal(harness.records[0].status, 'PROCESSING');
+    assert.deepEqual(harness.multipartObjects.get(harness.records[0].s3Key), Buffer.concat([chunk, tail]));
+    assert.equal(harness.processingMessages.length, 1);
+    assert.equal(harness.multipartUploads.size, 0);
+
+    const cancelled = randomUUID();
+    const cancelledPath = `${base}/uploads/${cancelled}`;
+    assert.equal((await start(cancelled, 3)).status, 201);
+    assert.equal((await part(`${cancelledPath}/parts/1`, tail)).status, 204);
+    const cancelResponse = await fetch(cancelledPath, { method: 'DELETE', headers });
+    assert.deepEqual(await cancelResponse.json(), { phase: 'cancelled', file: null, asynchronous: false });
+    assert.equal(harness.multipartUploads.size, 0);
+    assert.equal((await fetch(`${cancelledPath}/complete`, { method: 'POST', headers })).status, 409);
+    assert.equal(harness.records.length, 1);
+
+    const small = randomUUID();
+    const smallPath = `${base}/uploads/${small}`;
+    assert.equal((await start(small, tail.length)).status, 201);
+    assert.equal((await part(`${smallPath}/parts/1`, tail)).status, 204);
+    const completed = await fetch(`${smallPath}/complete`, { method: 'POST', headers });
+    assert.equal(completed.status, 201);
+    assert.equal(harness.records[1].checksum, createHash('sha256').update(tail).digest('hex'));
+    assert.equal(harness.processingMessages.length, 1);
+  } finally {
     await app.close();
   }
 });

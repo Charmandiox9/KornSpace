@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { RedisService } from '../redis/redis.service';
+import type { MultipartUpload } from './file.types';
 
 export type UploadPhase = 'uploading' | 'confirming' | 'cancelling' | 'cleanupPending' | 'cancelled' | 'completed' | 'failed';
 export interface UploadRecord {
@@ -11,6 +12,7 @@ export interface UploadRecord {
   asynchronous: boolean;
   leaseUntil: number;
   cleanupOutcome: 'cancelled' | 'failed';
+  multipart?: MultipartUpload;
 }
 
 const pendingIndex = 'kornspace:pending-file-uploads';
@@ -18,6 +20,19 @@ const terminalTtlSeconds = 86400;
 export const uploadLeaseMs = 90000;
 const phases: UploadPhase[] = ['uploading', 'confirming', 'cancelling', 'cleanupPending', 'cancelled', 'completed', 'failed'];
 const isTerminal = (phase: UploadPhase) => phase === 'cancelled' || phase === 'completed' || phase === 'failed';
+
+function isMultipartUpload(value: unknown): value is MultipartUpload {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.name === 'string' && typeof record.contentType === 'string'
+    && typeof record.sizeBytes === 'number' && Number.isSafeInteger(record.sizeBytes) && record.sizeBytes > 0
+    && typeof record.partSizeBytes === 'number' && Number.isSafeInteger(record.partSizeBytes) && record.partSizeBytes > 0
+    && (record.folderId == null || typeof record.folderId === 'string')
+    && (record.replaceFileId === undefined || typeof record.replaceFileId === 'string')
+    && (record.uploadId === undefined || typeof record.uploadId === 'string')
+    && typeof record.busy === 'boolean' && Array.isArray(record.parts)
+    && record.parts.every((tag: unknown) => typeof tag === 'string');
+}
 
 @Injectable()
 export class UploadRegistryService {
@@ -33,7 +48,8 @@ export class UploadRegistryService {
     const record = value as Record<string, unknown>;
     if (typeof record.operationId !== 'string' || typeof record.ownerId !== 'string' || typeof record.fileId !== 'string'
       || !phases.includes(record.phase as UploadPhase) || typeof record.asynchronous !== 'boolean'
-      || typeof record.leaseUntil !== 'number' || !['cancelled', 'failed'].includes(String(record.cleanupOutcome))) {
+      || typeof record.leaseUntil !== 'number' || !['cancelled', 'failed'].includes(String(record.cleanupOutcome))
+      || (record.multipart !== undefined && !isMultipartUpload(record.multipart))) {
       throw new Error('Invalid upload record');
     }
     return value as UploadRecord;
@@ -44,10 +60,11 @@ export class UploadRegistryService {
     return raw ? this.parse(raw) : null;
   }
 
-  async begin(ownerId: string, operationId: string, asynchronous: boolean): Promise<UploadRecord> {
+  async begin(ownerId: string, operationId: string, asynchronous: boolean, multipart?: MultipartUpload): Promise<UploadRecord> {
     const record: UploadRecord = {
       ownerId, operationId, asynchronous, fileId: randomUUID(), phase: 'uploading',
       leaseUntil: Date.now() + uploadLeaseMs, cleanupOutcome: 'failed',
+      ...(multipart && { multipart }),
     };
     if (!await this.redis.createIndexedRecord(this.key(ownerId, operationId), pendingIndex, JSON.stringify(record), 0)) {
       throw new ConflictException('Esta operación de carga ya existe. Consulta su estado antes de reintentar.');

@@ -2,6 +2,20 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createUploadQueue as createQueue, maxUploadBytes, validateUpload } from '../.test-dist/features/files/upload-queue.js';
 
+test('applies the deployment limit before sending a file', () => {
+  const sizeLimit = 100_000_000;
+  const queue = createQueue({
+    sizeLimit,
+    upload: () => assert.fail('An oversized file must not reach the transport'),
+    cancelUpload: async () => 'cancelled',
+    onUploaded: async () => undefined,
+  });
+  assert.equal(validateUpload({ name: 'setup.exe', size: sizeLimit }, sizeLimit), null);
+  queue.enqueue([{ name: 'setup.exe', size: 218_000_000 }]);
+  assert.equal(queue.getSnapshot()[0].status, 'invalid');
+  assert.equal(queue.getSnapshot()[0].error, 'tooLarge');
+});
+
 const createUploadQueue = (options) => createQueue({ cancelUpload: async () => 'cancelled', ...options });
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));

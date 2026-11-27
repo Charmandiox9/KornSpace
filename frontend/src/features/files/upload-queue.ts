@@ -2,14 +2,14 @@ import type { UploadJob, UploadItem, UploadQueue, UploadQueueOptions, UploadVali
 
 export const maxUploadBytes = 1024 * 1024 * 1024;
 
-export function validateUpload(file: Pick<File, 'name' | 'size'>): UploadValidationError | null {
-  if (file.size > maxUploadBytes) return 'tooLarge';
+export function validateUpload(file: Pick<File, 'name' | 'size'>, sizeLimit = maxUploadBytes): UploadValidationError | null {
+  if (file.size > sizeLimit) return 'tooLarge';
   if (file.size === 0) return 'empty';
   if (!file.name.trim() || file.name.length > 255 || /[\u0000-\u001f\u007f]/u.test(file.name)) return 'invalidName';
   return null;
 }
 
-export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrency = 3 }: UploadQueueOptions): UploadQueue {
+export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrency = 3, sizeLimit = maxUploadBytes }: UploadQueueOptions): UploadQueue {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error('Invalid upload concurrency');
   const emptySnapshot: UploadItem[] = [];
   let snapshot = emptySnapshot;
@@ -92,7 +92,7 @@ export function createUploadQueue({ upload, cancelUpload, onUploaded, concurrenc
     enqueue(files: File[], folderId: string | null = null, destinationName = folderId ?? 'root'): void {
       const items = files.map((file): UploadItem => {
         const id = String(++nextId);
-        const error = validateUpload(file);
+        const error = validateUpload(file, sizeLimit);
         if (!error) { const job = makeJob(id, file, folderId, destinationName); jobs.set(id, job); pending.push(job); }
         return { id, name: file.name, sizeBytes: file.size, loadedBytes: 0, completionWon: false, destinationName, status: error ? 'invalid' : 'queued', error };
       });

@@ -62,6 +62,21 @@ export interface UploadLifecycle {
   beforeCommit?: () => Promise<void>;
 }
 
+export interface MultipartFile {
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  folderId?: string | null;
+  replaceFileId?: string;
+}
+
+export interface MultipartUpload extends MultipartFile {
+  uploadId?: string;
+  partSizeBytes: number;
+  parts: string[];
+  busy: boolean;
+}
+
 export interface FileStorageClients {
   s3: S3Client;
   sqs: SQSClient;

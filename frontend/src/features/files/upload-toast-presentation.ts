@@ -1,6 +1,6 @@
 import type { UploadItem, UploadToastPresentation, TranslationCatalog } from '../../types';
 
-export function getUploadToastPresentation(item: UploadItem, copy: TranslationCatalog): UploadToastPresentation {
+export function getUploadToastPresentation(item: UploadItem, copy: TranslationCatalog, uploadLimit = '1 GiB'): UploadToastPresentation {
   const titles = {
     queued: copy.uploadWaiting,
     uploading: copy.uploadToastUploading,
@@ -26,7 +26,7 @@ export function getUploadToastPresentation(item: UploadItem, copy: TranslationCa
     failed: copy.uploadError,
   };
   const success = item.status === 'uploaded' || item.status === 'processing';
-  const errorMessage = item.error === 'tooLarge' ? copy.fileLimit
+  const errorMessage = item.error === 'tooLarge' ? copy.fileLimit.replace('{limit}', uploadLimit)
     : item.error === 'empty' ? copy.uploadEmpty
       : item.error === 'invalidName' ? copy.uploadInvalidName : null;
   return {

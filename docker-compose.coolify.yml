@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       target: production
+      args:
+        NEXT_PUBLIC_FILE_MAX_SIZE_BYTES: ${FILE_MAX_SIZE_BYTES:-1073741824}
     restart: unless-stopped
 
   backend:
@@ -23,6 +25,7 @@ services:
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?Define FRONTEND_ORIGIN en Coolify}
       JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en Coolify}
       AUTH_COOKIE_SECURE: "true"
+      FILE_MAX_SIZE_BYTES: ${FILE_MAX_SIZE_BYTES:-1073741824}
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test

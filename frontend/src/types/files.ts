@@ -126,6 +126,7 @@ export interface UploadQueueOptions {
   cancelUpload: (operationId: string) => Promise<CancellationResult>;
   onUploaded: (folderId: string | null) => Promise<void>;
   concurrency?: number;
+  sizeLimit?: number;
 }
 
 export interface UploadQueue {

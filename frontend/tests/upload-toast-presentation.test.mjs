@@ -36,7 +36,9 @@ test('announces upload completion while preserving the separate processing messa
 });
 
 test('retains validation errors and cancellation outcomes without losing retry controls', () => {
-  assert.equal(getUploadToastPresentation({ ...base, status: 'invalid', error: 'tooLarge' }, translations.es).message, translations.es.fileLimit);
+  const oversized = { ...base, status: 'invalid', error: 'tooLarge' };
+  assert.equal(getUploadToastPresentation(oversized, translations.es).message, 'El tamaño máximo es 1 GiB.');
+  assert.equal(getUploadToastPresentation(oversized, translations.en, '100 MB').message, 'Maximum file size is 100 MB.');
   assert.equal(getUploadToastPresentation({ ...base, status: 'invalid', error: 'empty' }, translations.es).showProgress, false);
   for (const status of ['failed', 'cancelled']) {
     assert.equal(getUploadToastPresentation({ ...base, status }, translations.es).action, 'retry');

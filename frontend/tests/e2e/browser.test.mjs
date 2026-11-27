@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
@@ -134,6 +134,7 @@ test('session navigation and multiple uploads in a real browser with a simulated
     const peer = { userId: '44444444-4444-4444-8444-444444444444', username: 'recipient', email: 'peer@example.test', name: 'Recipient' };
     const trashedRecords = [];
     const operations = new Map();
+    const multipartAttempts = new Map();
     const interceptionErrors = [];
     let sessionChecks = 0;
     let refreshes = 0;
@@ -146,6 +147,18 @@ test('session navigation and multiple uploads in a real browser with a simulated
       response.setHeader('Access-Control-Allow-Origin', origin);
       response.setHeader('Access-Control-Allow-Credentials', 'true');
       response.setHeader('Content-Type', 'application/json');
+      const part = /^\/api\/files\/uploads\/([^/]+)\/parts\/(\d+)$/.exec(url.pathname);
+      if (part) {
+        const upload = multipartAttempts.get(part[1]);
+        let received = 0;
+        request.on('data', (chunk) => { received += chunk.length; });
+        request.on('end', () => {
+          if (!upload || Number(part[2]) !== upload.sizes.length + 1) { response.writeHead(400).end(); return; }
+          upload.sizes.push(received);
+          response.writeHead(204).end();
+        });
+        return;
+      }
       request.on('aborted', () => operations.set(operationId, { phase: 'cancelled', file: null, asynchronous: false }));
       request.resume();
       request.on('end', () => {
@@ -241,12 +254,31 @@ test('session navigation and multiple uploads in a real browser with a simulated
         else if (url.pathname === '/api/folders') { listChecks += 1; const folderId = url.searchParams.get('parentId'); const folderView = (folder) => forceReaderPresentation ? { ...folder, permission: 'READER' } : folder; body = { folder: folderId ? folderView(dropFolder) : null, breadcrumbs: [], folders: folderId ? [] : [folderView(dropFolder), ...(emptyFolderExists ? [folderView(emptyFolder)] : [])], files: records.filter(record => (record.folderId ?? null) === folderId).map(file => forceReaderPresentation ? { ...file, permission: 'READER' } : file) }; }
         else if (event.request.method === 'GET' && /^\/api\/files\/[^/]+$/.test(url.pathname) && !url.pathname.endsWith('/trash')) { rawBody = '<script>window.previewExecuted = true</script> KornSpace text preview'; }
         else if (url.pathname.startsWith('/api/files/uploads/')) {
-          const id = url.pathname.split('/').at(-1);
-          const current = operations.get(id);
-          if (event.request.method === 'DELETE' && (!current || current.phase === 'uploading')) {
-            operations.set(id, { phase: 'cancelled', file: null, asynchronous: false });
+          const [, , , , id, step] = url.pathname.split('/');
+          if (event.request.method === 'PUT' && step === 'parts') {
+            await cdp.send('Fetch.continueRequest', { requestId: event.requestId, url: `${uploadOrigin}${url.pathname}` });
+            return;
           }
-          body = operations.get(id) ?? { phase: 'failed', file: null, asynchronous: false };
+          const current = operations.get(id);
+          if (event.request.method === 'POST' && !step) {
+            const file = JSON.parse(event.request.postData);
+            multipartAttempts.set(id, { ...file, sizes: [] });
+            operations.set(id, { phase: 'uploading', file: null, asynchronous: false });
+            status = 201;
+            body = { partSizeBytes: 16 * 1024 * 1024 };
+          } else if (event.request.method === 'POST' && step === 'complete') {
+            const upload = multipartAttempts.get(id);
+            const file = { id: String(++nextFileId), name: upload.name, contentType: upload.contentType, sizeBytes: upload.sizeBytes, folderId: upload.folderId, ownerId: user.id, status: 'PROCESSING', checksum: null, deletedAt: null, createdAt: '2026-01-01T00:00:00.000Z' };
+            records.push(file);
+            body = { file, asynchronous: true };
+            operations.set(id, { phase: 'completed', ...body });
+            status = 202;
+          } else {
+            if (event.request.method === 'DELETE' && (!current || current.phase === 'uploading')) {
+              operations.set(id, { phase: 'cancelled', file: null, asynchronous: false });
+            }
+            body = operations.get(id) ?? { phase: 'failed', file: null, asynchronous: false };
+          }
         }
         else if (event.request.method === 'POST') {
           const name = url.searchParams.get('name');
@@ -327,6 +359,36 @@ test('session navigation and multiple uploads in a real browser with a simulated
     };
 
     if (process.env.NOTIFICATION_SMOKE === '1') {
+      await t.test('splits a large executable and confirms processing only after all parts', async () => {
+        const partSize = 16 * 1024 * 1024;
+        const size = process.env.NEXT_PUBLIC_FILE_MAX_SIZE_BYTES === '100000000' ? 2 * partSize + 7 : 218 * 1024 * 1024;
+        const filename = path.join(temporaryDirectory, 'multipart.exe');
+        await writeFile(filename, '');
+        await truncate(filename, size);
+        await selectFiles([filename]);
+        const selector = '[data-upload-name="multipart.exe"][data-upload-state="processing"]';
+        await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`), 'multipart processing');
+        const expectedSizes = Array.from({ length: Math.ceil(size / partSize) }, (_, index) => Math.min(partSize, size - index * partSize));
+        assert.deepEqual([...multipartAttempts.values()].find((upload) => upload.name === 'multipart.exe')?.sizes, expectedSizes);
+        assert.ok(!uploads.includes('multipart.exe'), 'the single-request endpoint was bypassed');
+        await evaluate(`document.querySelector(${JSON.stringify(selector)}).querySelector('button').click()`);
+        await until(() => evaluate(`!document.querySelector(${JSON.stringify(selector)})`), 'multipart notice dismissed');
+      });
+
+      if (process.env.NEXT_PUBLIC_FILE_MAX_SIZE_BYTES === '100000000') {
+        await t.test('shows the configured limit before attempting a large upload', async () => {
+          const filename = path.join(temporaryDirectory, 'setup.exe');
+          await writeFile(filename, '');
+          await truncate(filename, 218_000_000);
+          await selectFiles([filename]);
+          const notification = '[data-upload-name="setup.exe"][data-upload-state="invalid"]';
+          await until(() => evaluate(`document.querySelector(${JSON.stringify(notification)})?.textContent.includes('El tamaño máximo es 100 MB.')`), 'deployment upload limit');
+          assert.deepEqual(uploads, []);
+          await evaluate(`document.querySelector(${JSON.stringify(notification)}).querySelector('button').click()`);
+          await until(() => evaluate(`!document.querySelector(${JSON.stringify(notification)})`), 'upload limit notice dismissed');
+        });
+      }
+
       await t.test('routine folder renaming uses a discreet confirmation without the mascot', async () => {
         await until(() => evaluate("Boolean(document.querySelector('[data-entry=empty-folder] summary'))"), 'folder action menu');
         await evaluate("document.querySelector('[data-entry=empty-folder] summary').click()");

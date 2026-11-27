@@ -5,11 +5,12 @@ import type { UploadToastContentProps } from '@/types';
 import { formatFileSize } from '@/lib/format-file-size';
 import { getUploadToastPresentation } from './upload-toast-presentation';
 import { UploadToastIcon } from './UploadToastIcon';
+import { uploadLimitLabel } from './upload-limit';
 
 export function UploadToastContent({ queue, uploadId, toastId, copy, onCancelUpload, onRetryUpload, onDismiss }: UploadToastContentProps) {
   const item = useSyncExternalStore(queue.subscribe, () => queue.getSnapshot().find((entry) => entry.id === uploadId), () => undefined);
   if (!item) return null;
-  const presentation = getUploadToastPresentation(item, copy);
+  const presentation = getUploadToastPresentation(item, copy, uploadLimitLabel);
   const percentage = item.sizeBytes > 0 ? Math.round(item.loadedBytes * 100 / item.sizeBytes) : 0;
   const nameId = `${toastId}-name`;
   const progressId = `${toastId}-progress`;

@@ -8,8 +8,10 @@ import {
   Headers,
   HttpCode,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Post,
+  Put,
   Optional,
   ServiceUnavailableException,
   UnsupportedMediaTypeException,
@@ -18,11 +20,12 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { ApiNoContentResponse, ApiAcceptedResponse, ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPartialContentResponse, ApiPayloadTooLargeResponse, ApiProduces, ApiProperty, ApiPropertyOptional, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse, ApiUnsupportedMediaTypeResponse } from '@nestjs/swagger';
+import { ApiNoContentResponse, ApiAcceptedResponse, ApiBadRequestResponse, ApiBody, ApiConflictResponse, ApiConsumes, ApiCreatedResponse, ApiForbiddenResponse, ApiHeader, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiPartialContentResponse, ApiPayloadTooLargeResponse, ApiProduces, ApiProperty, ApiPropertyOptional, ApiQuery, ApiServiceUnavailableResponse, ApiTags, ApiUnauthorizedResponse, ApiUnsupportedMediaTypeResponse } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { FileLibraryService } from './file-library.service';
 import { FileRangeNotSatisfiableError, FilesService } from './files.service';
-import type { StoredFileResponse, UploadFileResult, UploadOperationResponse } from './file.types';
+import type { MultipartFile, StoredFileResponse, UploadFileResult, UploadOperationResponse } from './file.types';
 import { ManagedUploadsService } from './managed-uploads.service';
 import type { UploadPhase } from './upload-registry.service';
 import { SessionJwtGuard } from '../auth/session-jwt.guard';
@@ -66,6 +69,34 @@ class UploadOperationResponseDto implements UploadOperationResponse {
   file!: StoredFileResponse | null;
   @ApiProperty()
   asynchronous!: boolean;
+}
+
+class MultipartFileDto implements MultipartFile {
+  @ApiProperty({ maxLength: 255 }) @IsString() @MaxLength(255) name!: string;
+  @ApiProperty({ maxLength: 255 }) @IsString() @MaxLength(255) contentType!: string;
+  @ApiProperty({ minimum: 1 }) @IsInt() @Min(1) sizeBytes!: number;
+  @ApiPropertyOptional({ format: 'uuid' }) @IsOptional() @IsUUID() folderId?: string;
+  @ApiPropertyOptional({ format: 'uuid' }) @IsOptional() @IsUUID() replaceFileId?: string;
+}
+
+class MultipartStartResponseDto {
+  @ApiProperty({ description: 'Tamaño en bytes de cada parte, salvo la última.' })
+  partSizeBytes!: number;
+}
+
+async function withRequestSignal<T>(request: Request, response: Response, action: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const close = () => { if (!response.writableFinished) abort(); };
+  request.once('aborted', abort);
+  response.once('close', close);
+  if (request.aborted) abort();
+  try {
+    return await action(controller.signal);
+  } finally {
+    request.removeListener('aborted', abort);
+    response.removeListener('close', close);
+  }
 }
 
 function encodeContentDispositionFilename(name: string): string {
@@ -150,7 +181,7 @@ export class FilesController {
   @ApiCreatedResponse({ type: UploadResponseDto, description: 'Archivo pequeño guardado y disponible.' })
   @ApiAcceptedResponse({ type: UploadResponseDto, description: 'Archivo grande guardado y en procesamiento.' })
   @ApiBadRequestResponse({ description: 'Falta nombre, Content-Type o Content-Length; el archivo está vacío o sus metadatos no son válidos.' })
-  @ApiPayloadTooLargeResponse({ description: 'El archivo excede el máximo configurado de 1 GiB.' })
+  @ApiPayloadTooLargeResponse({ description: 'El archivo excede el máximo configurado.' })
   @ApiConflictResponse({ description: 'El identificador del intento ya fue usado o cancelado. Consulta su estado y usa uno nuevo al reintentar.' })
   @ApiServiceUnavailableResponse({ description: 'Falló el almacenamiento S3, el guardado de metadatos en PostgreSQL o el encolado.' })
   @ApiNotFoundResponse({ description: 'La carpeta de destino no existe o no pertenece al usuario.' })
@@ -183,23 +214,69 @@ export class FilesController {
       throw new BadRequestException('X-Upload-Id debe ser un UUID v4 válido.');
     }
     if (replaceFileId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(replaceFileId)) throw new BadRequestException('X-Replace-File-Id no es v�lido.');
-    const controller = new AbortController();
-    const abort = () => controller.abort();
-    const close = () => { if (!response.writableFinished) abort(); };
-    request.once('aborted', abort);
-    response.once('close', close);
-    if (request.aborted) abort();
-    try {
+    return withRequestSignal(request, response, async (signal) => {
       if (operationId && !this.uploads) throw new ServiceUnavailableException('El servicio de cargas no está disponible.');
       const result = operationId && this.uploads
-        ? await this.uploads.upload(request, name, contentType, sizeBytes, user.userId, operationId, controller.signal, folderId ?? null, replaceFileId)
-        : await this.filesService.upload(request, name, contentType, sizeBytes, user.userId, { signal: controller.signal, folderId: folderId ?? null, replaceFileId });
+        ? await this.uploads.upload(request, name, contentType, sizeBytes, user.userId, operationId, signal, folderId ?? null, replaceFileId)
+        : await this.filesService.upload(request, name, contentType, sizeBytes, user.userId, { signal, folderId: folderId ?? null, replaceFileId });
       response.status(result.asynchronous ? 202 : 201);
       return result;
-    } finally {
-      request.removeListener('aborted', abort);
-      response.removeListener('close', close);
-    }
+    });
+  }
+
+  @Post('uploads/:operationId')
+  @ApiOperation({ summary: 'Inicia una carga por partes en S3' })
+  @ApiCreatedResponse({ type: MultipartStartResponseDto })
+  @ApiBadRequestResponse({ description: 'Los metadatos del archivo no son válidos.' })
+  @ApiPayloadTooLargeResponse({ description: 'El archivo excede el máximo configurado.' })
+  @ApiForbiddenResponse({ description: 'El usuario no puede escribir en la carpeta.' })
+  @ApiConflictResponse({ description: 'El nombre del archivo o la operación ya existe.' })
+  @ApiUnauthorizedResponse({ description: 'La sesión no es válida.' })
+  async startMultipart(@Param('operationId', new ParseUUIDPipe({ version: '4' })) operationId: string, @Body() file: MultipartFileDto, @CurrentUser() user: AuthenticatedUserContext): Promise<MultipartStartResponseDto> {
+    if (!this.uploads) throw new ServiceUnavailableException();
+    return { partSizeBytes: await this.uploads.startMultipart(user.userId, operationId, file) };
+  }
+
+  @Put('uploads/:operationId/parts/:partNumber')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Envía la siguiente parte de la carga, numerada desde uno' })
+  @ApiConsumes('application/octet-stream')
+  @ApiBody({ required: true, schema: { type: 'string', format: 'binary' } })
+  @ApiHeader({ name: 'Content-Length', required: true, description: 'Número de bytes de la parte.' })
+  @ApiNoContentResponse({ description: 'Parte confirmada por el almacenamiento.' })
+  @ApiBadRequestResponse({ description: 'El tamaño o el orden de la parte es incorrecto.' })
+  @ApiNotFoundResponse({ description: 'La operación no existe para el usuario.' })
+  @ApiUnsupportedMediaTypeResponse({ description: 'La parte debe enviarse como application/octet-stream.' })
+  @ApiUnauthorizedResponse({ description: 'La sesión no es válida.' })
+  async uploadPart(
+    @Param('operationId', new ParseUUIDPipe({ version: '4' })) operationId: string,
+    @Param('partNumber', ParseIntPipe) partNumber: number, @Headers('content-length') length: string | undefined,
+    @Req() request: Request, @Res({ passthrough: true }) response: Response, @CurrentUser() user: AuthenticatedUserContext,
+  ): Promise<void> {
+    const uploads = this.uploads;
+    if (!uploads) throw new ServiceUnavailableException();
+    if (request.headers['content-type'] !== 'application/octet-stream') throw new UnsupportedMediaTypeException();
+    if (!length || !/^\d+$/u.test(length)) throw new BadRequestException('La parte debe declarar Content-Length.');
+    await withRequestSignal(request, response, (signal) => uploads.uploadPart(user.userId, operationId, partNumber, Number(length), request, signal));
+  }
+
+  @Post('uploads/:operationId/complete')
+  @ApiOperation({ summary: 'Ensambla las partes en S3 y guarda el archivo' })
+  @ApiCreatedResponse({ type: UploadResponseDto })
+  @ApiAcceptedResponse({ type: UploadResponseDto })
+  @ApiBadRequestResponse({ description: 'Todavía faltan partes por subir.' })
+  @ApiNotFoundResponse({ description: 'La operación no existe para el usuario.' })
+  @ApiConflictResponse({ description: 'La operación se canceló o existe un archivo con el mismo nombre.' })
+  @ApiUnauthorizedResponse({ description: 'La sesión no es válida.' })
+  async completeMultipart(
+    @Param('operationId', new ParseUUIDPipe({ version: '4' })) operationId: string,
+    @Req() request: Request, @Res({ passthrough: true }) response: Response, @CurrentUser() user: AuthenticatedUserContext,
+  ): Promise<UploadFileResult> {
+    const uploads = this.uploads;
+    if (!uploads) throw new ServiceUnavailableException();
+    const result = await withRequestSignal(request, response, (signal) => uploads.completeMultipart(user.userId, operationId, signal));
+    response.status(result.asynchronous ? 202 : 201);
+    return result;
   }
 
   @Get('uploads/:operationId')

@@ -7,9 +7,16 @@ import { authenticatedFetch, authenticatedRequest } from '@/lib/api-client';
 import { createUploadTransport } from '@/lib/upload-request';
 import { isStoredFile } from '@/features/files/is-stored-file';
 import { createUploadQueue } from '@/features/files/upload-queue';
+import { uploadSizeLimit } from '@/features/files/upload-limit';
 
 class UploadCollision extends Error {
   constructor(readonly conflictId: string) { super('File name collision'); }
+}
+
+const singleRequestLimit = 16 * 1024 * 1024;
+
+function uploadPath(operationId: string): string {
+  return `/api/files/uploads/${encodeURIComponent(operationId)}`;
 }
 
 async function collisionId(response: Response): Promise<string> {
@@ -19,14 +26,9 @@ async function collisionId(response: Response): Promise<string> {
 }
 
 async function uploadFile(file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string, folderId: string | null, replaceFileId?: string): Promise<'uploaded' | 'processing'> {
-  const query = new URLSearchParams({ name: file.name });
-  if (folderId) query.set('folderId', folderId);
-  const response = await authenticatedRequest(`/api/files?${query.toString()}`, {
-    method: 'POST',
-    headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Upload-Id': operationId, ...(replaceFileId ? { 'X-Replace-File-Id': replaceFileId } : {}) },
-    body: file,
-    signal,
-  }, createUploadTransport(onProgress));
+  const response = file.size > singleRequestLimit
+    ? await uploadInParts(file, signal, onProgress, operationId, folderId, replaceFileId)
+    : await uploadSingleRequest(file, signal, onProgress, operationId, folderId, replaceFileId);
   if (response.status === 409) throw new UploadCollision(await collisionId(response));
   if (!response.ok) throw new Error('Upload failed');
   const payload: unknown = await response.json();
@@ -37,8 +39,43 @@ async function uploadFile(file: File, signal: AbortSignal, onProgress: ProgressL
   return payload.asynchronous ? 'processing' : 'uploaded';
 }
 
+function uploadSingleRequest(file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string, folderId: string | null, replaceFileId?: string): Promise<Response> {
+  const query = new URLSearchParams({ name: file.name });
+  if (folderId) query.set('folderId', folderId);
+  return authenticatedRequest(`/api/files?${query.toString()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Upload-Id': operationId, ...(replaceFileId ? { 'X-Replace-File-Id': replaceFileId } : {}) },
+    body: file,
+    signal,
+  }, createUploadTransport(onProgress));
+}
+
+async function uploadInParts(file: File, signal: AbortSignal, onProgress: ProgressListener, operationId: string, folderId: string | null, replaceFileId?: string): Promise<Response> {
+  const path = uploadPath(operationId);
+  const start = await authenticatedFetch(path, {
+    method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: file.name, contentType: file.type || 'application/octet-stream', sizeBytes: file.size, folderId, replaceFileId }),
+  });
+  if (!start.ok) return start;
+  const data: unknown = await start.json();
+  if (typeof data !== 'object' || data === null || !('partSizeBytes' in data) || typeof data.partSizeBytes !== 'number'
+    || !Number.isSafeInteger(data.partSizeBytes) || data.partSizeBytes <= 0 || data.partSizeBytes > singleRequestLimit) {
+    throw new Error('Invalid upload part size');
+  }
+  const partSize = data.partSizeBytes;
+  for (let offset = 0, partNumber = 1; offset < file.size; offset += partSize, partNumber += 1) {
+    signal.throwIfAborted();
+    const body = file.slice(offset, offset + partSize);
+    const response = await authenticatedRequest(`${path}/parts/${partNumber}`, {
+      method: 'PUT', signal, headers: { 'Content-Type': 'application/octet-stream' }, body,
+    }, createUploadTransport(({ loadedBytes }) => onProgress({ loadedBytes: offset + loadedBytes, totalBytes: file.size })));
+    if (!response.ok) throw new Error('Upload part failed');
+  }
+  return authenticatedFetch(`${path}/complete`, { method: 'POST', signal });
+}
+
 async function cancelUpload(operationId: string): Promise<CancellationResult> {
-  const path = `/api/files/uploads/${encodeURIComponent(operationId)}`;
+  const path = uploadPath(operationId);
   for (let attempt = 0; attempt < 60; attempt += 1) {
     const response = await authenticatedFetch(path, { method: attempt === 0 ? 'DELETE' : 'GET', signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error('Cannot confirm upload cancellation');
@@ -64,6 +101,7 @@ export function useUploadQueue(onUploaded: (folderId: string | null) => Promise<
   const onUploadedRef = useRef(onUploaded);
   useEffect(() => { onUploadedRef.current = onUploaded; }, [onUploaded]);
   const [queue] = useState(() => createUploadQueue({
+    sizeLimit: uploadSizeLimit,
     upload: async (file, signal, progress, operationId, folderId) => {
       const confirm = (conflictId: string) => new Promise<boolean>((resolve) => {
         const finish = (choice: boolean) => {
