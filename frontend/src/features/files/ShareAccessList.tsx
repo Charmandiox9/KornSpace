@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from '@/features/auth/SessionProvider';
 import { authenticatedFetch } from '@/lib/api-client';
+import { sileo } from '@/lib/notifications';
 import type { ResourcePermission, ShareAccessListProps } from '@/types';
 
 function isPermission(value: unknown): value is ResourcePermission {
@@ -23,8 +24,15 @@ export function ShareAccessList({ resourceId, kind, copy, refreshKey = 0, onChan
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const list = useRef<HTMLElement>(null);
+  const pendingToast = useRef('');
   const [version, setVersion] = useState(0);
   const path = `/api/${kind}/${encodeURIComponent(resourceId)}/permissions`;
+
+  useEffect(() => () => {
+    if (pendingToast.current) sileo.success({ title: pendingToast.current });
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -49,12 +57,19 @@ export function ShareAccessList({ resourceId, kind, copy, refreshKey = 0, onChan
     if (busy || row.inherited) return;
     setBusy(true);
     setError('');
+    setConfirmation('');
     try {
       const response = await authenticatedFetch(`${path}/${encodeURIComponent(row.userId)}`, {
         method: role ? 'PATCH' : 'DELETE',
         ...(role ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) } : {}),
       });
       if (!response.ok) throw new Error();
+      if (list.current) {
+        pendingToast.current = copy.shareAccessUpdated;
+        setConfirmation(copy.shareAccessUpdated);
+      } else {
+        sileo.success({ title: copy.shareAccessUpdated });
+      }
       await onChanged();
       setVersion((value) => value + 1);
     } catch {
@@ -78,7 +93,7 @@ export function ShareAccessList({ resourceId, kind, copy, refreshKey = 0, onChan
     </span>
   );
 
-  return <section aria-label={copy.sharedPeople} aria-busy={loading} className="my-4 grid gap-3">
+  return <section ref={list} aria-label={copy.sharedPeople} aria-busy={loading} className="my-4 grid gap-3">
     {showHeading && <h3 className="text-sm font-semibold">{copy.sharedPeople}</h3>}
     {avatarOnly ? <div className="flex min-h-10 flex-wrap items-center gap-2">
       {user && profile(`owner-${user.id}`, user.name ?? user.username ?? user.email, user.username, user.email, user.pictureUrl, true)}
@@ -99,6 +114,7 @@ export function ShareAccessList({ resourceId, kind, copy, refreshKey = 0, onChan
           {!row.inherited && <button type="button" disabled={busy || loading} className="min-h-9 rounded-lg px-2 text-status hover:bg-raised" onClick={() => void update(row, null)}>{copy.revokeFolderEditor}</button>}</div>
       </div>)}
     </>}
+    {!avatarOnly && <p role="status" className="rounded-lg bg-accent-soft px-3 py-2 text-xs font-medium text-accent empty:sr-only">{confirmation}</p>}
     {error && <p role="alert" className="text-xs text-status">{error} <button type="button" className="underline" onClick={() => setVersion((value) => value + 1)}>{copy.shareRetry}</button></p>}
   </section>;
 }

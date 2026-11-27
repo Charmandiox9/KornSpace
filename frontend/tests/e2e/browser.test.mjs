@@ -401,6 +401,21 @@ test('session navigation and multiple uploads in a real browser with a simulated
         await until(() => evaluate("document.querySelectorAll('[data-sileo-toast]').length === 0"), 'routine notification dismissed', 12000);
       });
 
+      await t.test('confirms permission updates immediately and shows the toast after closing the share dialog', async () => {
+        directFolderGrants.set(dropFolder.id, new Map([[peer.userId, 'READER']]));
+        await until(() => evaluate(`Boolean(document.querySelector('[data-entry="drop-target"] summary'))`), 'folder action menu');
+        await evaluate(`document.querySelector('[data-entry="drop-target"] summary').click()`);
+        await evaluate(`document.querySelector('[aria-label="Compartir carpeta: Drop destination"]').click()`);
+        const selector = 'dialog select[aria-label="Permiso: peer@example.test"]';
+        await until(() => evaluate(`!document.querySelector(${JSON.stringify(selector)})?.disabled && Boolean(document.querySelector(${JSON.stringify(selector)}))`), 'existing recipient');
+        await evaluateFunction(`function (selector) { const field = document.querySelector(selector); field.value = 'EDITOR'; field.dispatchEvent(new Event('change', { bubbles: true })); }`, selector);
+        await until(() => evaluate(`Array.from(document.querySelectorAll('dialog[open] [role=status]')).some(status => status.textContent === 'Permisos actualizados.')`), 'inline permission confirmation');
+        assert.equal(directFolderGrants.get(dropFolder.id)?.get(peer.userId), 'EDITOR');
+        await evaluate(`Array.from(document.querySelectorAll('dialog button')).find(button => button.textContent === 'Hecho').click()`);
+        await until(() => evaluate(`Array.from(document.querySelectorAll('[data-sileo-toast]')).some(toast => toast.textContent.includes('Permisos actualizados.'))`), 'permission toast after close');
+        directFolderGrants.delete(dropFolder.id);
+      });
+
       await t.test('branded notifications preserve concurrent progress and adapt to themes, mobile and reduced motion', async () => {
         const names = ['toast-brand-one.txt', 'toast-brand-two.txt'];
         const paths = names.map((name) => path.join(temporaryDirectory, name));

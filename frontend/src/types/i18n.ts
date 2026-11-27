@@ -117,6 +117,7 @@ export interface TranslationCatalog {
   shareReader: string;
   shareEditor: string;
   shareSuccess: string;
+  shareAccessUpdated: string;
   emptyTrashAction: string;
   emptyTrashDescription: string;
   emptyTrashPending: string;
