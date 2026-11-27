@@ -7,7 +7,7 @@
     "build": "node scripts/prisma-with-root-env.cjs generate && nest build",
     "start": "nest start",
     "start:dev": "node --env-file=../.env ./node_modules/@nestjs/cli/bin/nest.js start --watch",
-    "start:prod": "node dist/main.js",
+    "start:prod": "node scripts/start-prod.cjs",
     "prisma:generate": "node scripts/prisma-with-root-env.cjs generate",
     "prisma:migrate:dev": "node scripts/prisma-with-root-env.cjs migrate dev",
     "prisma:migrate:deploy": "node scripts/prisma-with-root-env.cjs migrate deploy",

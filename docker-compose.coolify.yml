@@ -1,0 +1,129 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      target: production
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: production
+    environment:
+      PORT: "3000"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      DATABASE_URL: ${POSTGRES_DATABASE_URL:?Define POSTGRES_DATABASE_URL en Coolify}
+      DATABASE_URL_UNPOOLED: ${POSTGRES_DATABASE_URL:?Define POSTGRES_DATABASE_URL en Coolify}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:?Define GOOGLE_OAUTH_CLIENT_ID en Coolify}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:?Define GOOGLE_OAUTH_CLIENT_SECRET en Coolify}
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:?Define GOOGLE_OAUTH_REDIRECT_URI en Coolify}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?Define FRONTEND_ORIGIN en Coolify}
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en Coolify}
+      AUTH_COOKIE_SECURE: "true"
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      S3_ENDPOINT: http://localstack:4566
+      S3_BUCKET: kornspace-files
+      SQS_ENDPOINT: http://localstack:4566
+      SQS_QUEUE_URL: http://localstack:4566/queue/us-east-1/000000000000/kornspace-file-processing
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      terraform:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kornspace}
+      POSTGRES_USER: ${POSTGRES_USER:-kornspace}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en Coolify}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  localstack:
+    image: localstack/localstack:latest
+    environment:
+      SERVICES: s3,sqs
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_HOST: localstack:4566
+      SQS_ENDPOINT_STRATEGY: path
+      PERSISTENCE: "1"
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:?Define LOCALSTACK_AUTH_TOKEN en Coolify}
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4566/_localstack/health', timeout=2).close()"
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  terraform:
+    build:
+      context: ./infra/terraform/localstack
+      dockerfile_inline: |
+        FROM hashicorp/terraform:1.12.2
+        WORKDIR /infra
+        COPY *.tf .terraform.lock.hcl ./
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        terraform init -input=false -lockfile=readonly &&
+        terraform apply -input=false -auto-approve -state=/state/terraform.tfstate
+    environment:
+      TF_VAR_localstack_endpoint: http://localstack:4566
+    volumes:
+      - terraform_state:/state
+    depends_on:
+      localstack:
+        condition: service_healthy
+    restart: "no"
+
+  nginx:
+    build:
+      context: ./infra/nginx
+      dockerfile_inline: |
+        FROM nginx:alpine
+        COPY default.conf /etc/nginx/conf.d/default.conf
+    expose:
+      - "80"
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  localstack_data:
+  terraform_state:

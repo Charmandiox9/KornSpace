@@ -19,6 +19,7 @@
   },
   "pnpm": {
     "overrides": {
+      "@prisma/config>effect": "3.22.1",
       "deepmerge-ts": "8.0.2",
       "@graphql-tools/utils": "12.1.0",
       "multer": "2.5.0",
